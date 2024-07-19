@@ -5,13 +5,14 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
+import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 
 interface IDepositContract {
     function executeWithdrawal(address user, address token, uint256 nftId, uint256 amount) external;
-    function verifyChainProof(uint256 nftId, bytes calldata proof) external view returns (uint256 chainId, uint256 collateral, uint256 borrowed);
 }
 
-contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
+contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OAppOptionsType3 {
     using ECDSA for bytes32;
 
     uint256 private _currentTokenId;
@@ -28,10 +29,11 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
     address public issuer;
     mapping(uint256 => bool) public approvedChains;
     uint256 public immutable adminChainId;
-    mapping(uint256 => mapping(uint256 => uint256)) public withdrawalNonces; // nftId => chainId => nonce
+    mapping(uint256 => uint256) public withdrawalNonces; // nftId => chainId => nonce
     mapping(uint256 => IDepositContract) public depositContracts;
 
     uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
+    string public data = "Nothing received yet";
 
     event ManagerAdded(uint256 indexed tokenId, address manager);
     event ManagerRemoved(uint256 indexed tokenId, address manager);
@@ -42,16 +44,17 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
     event WalletLimitSet(uint256 indexed tokenId, address wallet, uint256 limit);
     event ChainApproved(uint256 chainId);
     event ChainDisapproved(uint256 chainId);
-    event Withdrawn(uint256 indexed nftId, address indexed token, uint256 amount, uint256 targetChainId);
-    event ForcedWithdrawalExecuted(uint256 indexed nftId, address indexed token, uint256 amount, uint256 targetChainId);
-    event CrossChainWithdrawalInitiated(uint256 indexed nftId, address indexed token, uint256 amount, uint256 targetChainId);
+    event Withdrawn(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
+    event ForcedWithdrawalExecuted(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
+    event CrossChainWithdrawalInitiated(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
 
-    constructor(string memory name, string memory symbol, address _issuer) 
+    constructor(string memory name, string memory symbol, address _issuer, address _endpoint, address _owner, uint256 _adminChainId) 
         ERC721(name, symbol) 
+        OApp(_endpoint, _owner)
         Ownable(msg.sender)
     {
         issuer = _issuer;
-        adminChainId = block.chainid;
+        adminChainId = _adminChainId;
     }
 
     modifier onlyIssuer() {
@@ -62,6 +65,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
     function mint() external returns (uint256) {
         _currentTokenId++;
         uint256 newTokenId = _currentTokenId;
+        withdrawalNonces[newTokenId] = 1;
         _safeMint(msg.sender, newTokenId);
         return newTokenId;
     }
@@ -156,31 +160,31 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
         address token,
         uint256 nftId,
         uint256 amount,
-        uint256 targetChainId,
+        uint32 targetChainId,
         uint256 timestamp,
         uint256 nonce,
-        bytes memory signature
-    ) external {
+        bytes memory signature,
+        bytes calldata _extraOptions
+    ) external payable {
         require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
         require(approvedChains[targetChainId], "Chain not   supported");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
-        require(nonce == withdrawalNonces[nftId][targetChainId], "Invalid nonce");
+        require(nonce == withdrawalNonces[nftId], "Invalid withdraw nonce");
 
         bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, token, nftId, amount, targetChainId, timestamp, nonce));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
+        require(ethSignedMessageHash.recover(signature) == issuer, "Invalid withdraw signature");
 
-        withdrawalNonces[nftId][targetChainId]++;
-
-        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId);
+        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId, _extraOptions);
     }
 
     function forcedWithdrawal(
         uint256 nftId,
         address token,
         uint256 amount,
-        uint256 targetChainId,
-        bytes[] calldata chainProofs
+        uint32 targetChainId,
+        bytes[] calldata chainProofs,
+        bytes calldata _extraOptions
     ) external {
         require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
         require(approvedChains[targetChainId], "Chain not supported");
@@ -189,47 +193,112 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
         uint256 totalCollateral = 0;
         uint256 totalBorrowed = 0;
 
-        for (uint256 i = 0; i < chainProofs.length; i++) {
-            IDepositContract depositContract = depositContracts[targetChainId];
-            require(address(depositContract) != address(0), "Deposit contract not set for this chain");
+        // for (uint256 i = 0; i < chainProofs.length; i++) {
+        //     IDepositContract depositContract = depositContracts[targetChainId];
+        //     require(address(depositContract) != address(0), "Deposit contract not set for this chain");
 
-            (uint256 chainId, uint256 collateral, uint256 borrowed) = depositContract.verifyChainProof(nftId, chainProofs[i]);
-            require(approvedChains[chainId], "Unsupported chain in proof");
-            require(_accounts[nftId].enabledChains[chainId], "Chain not enabled for this NFT");
-            totalCollateral += collateral;
-            totalBorrowed += borrowed;
-        }
+        //     (uint256 chainId, uint256 collateral, uint256 borrowed) = depositContract.verifyChainProof(nftId, chainProofs[i]);
+        //     require(approvedChains[chainId], "Unsupported chain in proof");
+        //     require(_accounts[nftId].enabledChains[chainId], "Chain not enabled for this NFT");
+        //     totalCollateral += collateral;
+        //     totalBorrowed += borrowed;
+        // }
 
         require(totalCollateral >= totalBorrowed + amount, "Insufficient collateral for withdrawal");
 
-        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId);
+        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId, _extraOptions);
 
         emit ForcedWithdrawalExecuted(nftId, token, amount, targetChainId);
     }
 
-    function _executeWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint256 targetChainId) internal {
+    function _executeWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];
             require(address(depositContract) != address(0), "Deposit contract not set for this chain");
             depositContract.executeWithdrawal(user, token, nftId, amount);
             emit Withdrawn(nftId, token, amount, targetChainId);
         } else {
-            _initiateCrossChainWithdrawal(user, token, nftId, amount, targetChainId);
+            _initiateCrossChainWithdrawal(user, token, nftId, amount, targetChainId, _extraOptions);
         }
     }
 
-    function _initiateCrossChainWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint256 targetChainId) internal {
-        // TODO: Implement cross-chain messaging logic here
-        // This function should initiate a cross-chain message to the target chain
-        // to execute the withdrawal on that chain
+    function _initiateCrossChainWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
+        // require(approvedChains[targetChainId], "Target chain not approved"); NO NEED TO CHECK THIS. IT DOESN"T HAVE TO BE APPROVED
+        
+        // Prepare the payload for the cross-chain message
+        bytes memory payload = abi.encode(
+            user,
+            token,
+            nftId,
+            amount,
+            withdrawalNonces[nftId]
+        );
+
+        _lzSend(
+            targetChainId,
+            payload,
+            // encodeMessage(_message, _msgType, _extraReturnOptions),
+            _extraOptions,
+            // Fee in native gas and ZRO token.
+            MessagingFee(msg.value, 0),
+            // Refund address in case of failed source message.
+            payable(msg.sender) 
+        );
+        // Increment the nonce
+        withdrawalNonces[nftId]++;
+
         emit CrossChainWithdrawalInitiated(nftId, token, amount, targetChainId);
     }
+
+    function _lzReceive(
+        Origin calldata _origin, // struct containing info about the message sender
+        bytes32 _guid, // global packet identifier
+        bytes calldata payload, // encoded message payload being received
+        address _executor, // the Executor address.
+        bytes calldata _extraData // arbitrary data appended by the Executor
+        ) internal override {
+            data = abi.decode(payload, (string)); // your logic here
+    }
+
+        /**
+     * @notice Returns the estimated messaging fee for a given message.
+     * @param targetChainId Destination endpoint ID where the message will be sent.
+     * @param _msgType The type of message being sent.
+     * @param user Input needed to calculate the message payload.
+     * @param token Input needed to calculate the message payload.
+     * @param nftId Input needed to calculate the message payload.
+     * @param amount Input needed to calculate the message payload.
+     * @param _extraOptions Gas options for sending the call (A -> B).
+     * @param _payInLzToken Boolean flag indicating whether to pay in LZ token.
+     * @return fee The estimated messaging fee.
+     */
+     function quote(
+        uint32 targetChainId,
+        uint16 _msgType,
+        address user,
+        address token, 
+        uint256 nftId, 
+        uint256 amount,
+        bytes calldata _extraOptions,
+        bool _payInLzToken
+    ) public view returns (MessagingFee memory fee) {
+        bytes memory payload = abi.encode(
+            user,
+            token,
+            nftId,
+            amount,
+            withdrawalNonces[nftId]
+        );
+
+        fee = _quote(targetChainId, payload, _extraOptions, _payInLzToken);
+    }
+
 
     function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
 
-    function setDepositContract(uint256 chainId, address contractAddress) external onlyOwner {
+    function setDepositContract(uint256 chainId, address contractAddress) external onlyIssuer {
         depositContracts[chainId] = IDepositContract(contractAddress);
     }
 
@@ -259,6 +328,10 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable {
 
     function _increaseBalance(address account, uint128 value) internal override(ERC721, ERC721Enumerable) {
         super._increaseBalance(account, value);
+    }
+
+    function getCurrentNonce(uint256 nftId) external view returns (uint256) {
+        return withdrawalNonces[nftId];
     }
 
     // function _beforeTokenTransfer(address from, address to, uint256 tokenId, uint256 batchSize)

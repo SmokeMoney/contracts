@@ -52,14 +52,14 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     event PoolDeposited(uint256 amount);
     event PoolWithdrawn(uint256 amount);
 
-    constructor(address _issuer, address _weth) Ownable(msg.sender) {
+    constructor(address _issuer, address _weth, uint256 _chainId) Ownable(msg.sender) {
         issuer = _issuer;
         WETH = IWETH(_weth);
         borrowInterestRate = 1000; // 10% annual interest
         autogasThreshold = 1e18; // 1 ETH
         autogasRefillAmount = 5e17; // 0.5 ETH, adjust as needed
         repaymentThreshold = 1e13; // 0.00000001 ETH
-        chainId = block.chainid;
+        chainId = _chainId;
     }
 
     receive() external payable {

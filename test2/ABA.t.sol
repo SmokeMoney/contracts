@@ -40,7 +40,7 @@ contract ABATest is TestHelperOz5 {
 
     string public _a = "A";
     string public _b = "B";
-
+        
     function setUp() public virtual override {
         vm.deal(userA, 1000 ether);
         vm.deal(userB, 1000 ether);
@@ -86,6 +86,12 @@ contract ABATest is TestHelperOz5 {
         bytes memory expectedOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(600000, uint128(returnFee.nativeFee));
         
         bytes memory combinedOptions = aSender.combineOptions(bEid, SEND_ABA, _extraSendOptions);
+        console.logBytes(_extraReturnOptions);
+        console.log(uint128(returnFee.nativeFee));
+        console.logBytes(aEnforcedOptions[1].options);
+        console.logBytes(_extraSendOptions);
+        console.logBytes(expectedOptions);
+        console.logBytes(combinedOptions);
         assertEq(combinedOptions, expectedOptions);
     }
     
@@ -120,7 +126,7 @@ contract ABATest is TestHelperOz5 {
         // Use the new quote for the msg.value of the send call.
         vm.startPrank(userA);
         aSender.send{value: sendFee.nativeFee}(
-            bEid,
+            bEid,   
             SEND_ABA,
             "Chain A says hello!",
             _extraSendOptions,

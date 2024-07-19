@@ -103,7 +103,7 @@ contract ABA is OApp, OAppOptionsType3 {
             // Fee in native gas and ZRO token.
             MessagingFee(msg.value, 0),
             // Refund address in case of failed source message.
-            payable(msg.sender) 
+            payable(msg.sender)
         );
 
         emit MessageSent(_message, _dstEid);
@@ -157,7 +157,7 @@ contract ABA is OApp, OAppOptionsType3 {
 
             emit ReturnMessageSent(_newMessage, _origin.srcEid);
         }
-           
+
         emit MessageReceived(data, _origin.srcEid, _origin.sender);
     }
 

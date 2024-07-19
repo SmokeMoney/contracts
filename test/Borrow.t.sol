@@ -7,10 +7,10 @@ import "../src/nftaccounts.sol";
 import "../src/weth.sol";
 import "../src/siggen.sol";
 import "../src/lendingcontract.sol";
-// import "../src/totalborrowlendingcon tract.sol";
 import "../src/deposit.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
 
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {
@@ -18,7 +18,7 @@ contract MockERC20 is ERC20 {
     }
 }
 
-contract DepositTest is Test {
+contract DepositTest is TestHelperOz5 {
     using ECDSA for bytes32;
 
     CrossChainLendingAccount public nftContract;    
@@ -35,27 +35,32 @@ contract DepositTest is Test {
     uint256 internal user2Pk;
     address public user3;
 
+
+    uint32 aEid = 1;
+    uint32 bEid = 2;
+    
     uint256 public tokenId;
     uint256 public adminChainIdReal;
 
-    function setUp() public {
+    function setUp() public virtual override {
 
         (issuer, issuerPk) = makeAddrAndKey("issuer");
         (user, userPk) = makeAddrAndKey("user");
         (user2, user2Pk) = makeAddrAndKey("user2");
 
         user3 = address(3);
-        adminChainIdReal = 31337;
+        adminChainIdReal = 1;
+        
+        super.setUp();
+        setUpEndpoints(2, LibraryType.UltraLightNode);
 
         vm.startPrank(issuer);
 
-        nftContract = new CrossChainLendingAccount("AutoGas", "OG", issuer);
+        nftContract = new CrossChainLendingAccount("AutoGas", "OG", issuer, endpoints[aEid], issuer, 1);
         weth = new WETH();
         siggen = new SignatureGenerator();
-        lendingcontract = new CrossChainLendingContract(issuer, address(weth));
+        lendingcontract = new CrossChainLendingContract(issuer, address(weth), aEid);
 
-
-        // NFT Accounts setup
         nftContract.approveChain(adminChainIdReal); // Adding a supported chain
 
         vm.deal(issuer, 100 ether);

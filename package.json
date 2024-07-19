@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@layerzerolabs/lz-evm-oapp-v2": "^2.3.29",
-    "@layerzerolabs/test-devtools-evm-foundry": "^0.2.7"
+    "@layerzerolabs/test-devtools-evm-foundry": "^0.2.7",
+    "solidity-bytes-utils": "^0.8.2"
   }
 }
