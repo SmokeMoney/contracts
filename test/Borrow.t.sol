@@ -81,7 +81,6 @@ contract DepositTest is TestHelperOz5 {
 
         // User mints the NFT and user setup
         tokenId = nftContract.mint();
-        nftContract.approveWallet(tokenId, user2);
         vm.stopPrank();
 
 
@@ -114,7 +113,6 @@ contract DepositTest is TestHelperOz5 {
         //     }
         // }
         // assertTrue(isUser2Approved, "user2 should be in the list of approved wallets");
-        assertTrue(nftContract.isWalletApproved(tokenId, user2), "User not approved");
 
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();

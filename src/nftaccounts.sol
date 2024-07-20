@@ -18,9 +18,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     uint256 private _currentTokenId;
 
     struct Account {
-        mapping(address => bool) approvedWallets;
-        mapping(uint256 => bool) enabledChains;
-        mapping(address => uint256) walletLimits;
+        mapping(address => mapping(uint256 => uint256)) walletChainLimits;
         address[] walletList;
         address[] managers;
     }
@@ -28,6 +26,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     mapping(uint256 => Account) private _accounts;
     address public issuer;
     mapping(uint256 => bool) public approvedChains;
+    uint256[] public chainList;
     uint256 public immutable adminChainId;
     mapping(uint256 => uint256) public withdrawalNonces; // nftId => chainId => nonce
     mapping(uint256 => IDepositContract) public depositContracts;
@@ -42,6 +41,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     event ChainEnabled(uint256 indexed tokenId, uint256 chainId);
     event ChainDisabled(uint256 indexed tokenId, uint256 chainId);
     event WalletLimitSet(uint256 indexed tokenId, address wallet, uint256 limit);
+    event ChainAdded(uint256 chainId);
     event ChainApproved(uint256 chainId);
     event ChainDisapproved(uint256 chainId);
     event Withdrawn(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
@@ -60,6 +60,29 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     modifier onlyIssuer() {
         require(msg.sender == issuer, "Not the issuer");
         _;
+    }
+
+    function approveChain(uint256 chainId) external onlyIssuer {
+        if (!isChainInList(chainId)) {
+            chainList.push(chainId);
+            emit ChainAdded(chainId);
+        }
+        approvedChains[chainId] = true;
+        emit ChainApproved(chainId);
+    }
+
+    function disapproveChain(uint256 chainId) external onlyIssuer {
+        approvedChains[chainId] = false; // the issuer can add a false flag to a non-approved chain, is this cool? 
+        emit ChainDisapproved(chainId);
+    }
+
+    function isChainInList(uint256 chainId) public view returns (bool) {
+        for (uint i = 0; i < chainList.length; i++) {
+            if (chainList[i] == chainId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function mint() external returns (uint256) {
@@ -105,55 +128,74 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         revert("Manager not found");
     }
 
-    function approveWallet(uint256 tokenId, address wallet) external {
-        require(ownerOf(tokenId) == msg.sender, "Not the token owner");
-        require(!_accounts[tokenId].approvedWallets[wallet], "Wallet already approved");
-        _accounts[tokenId].approvedWallets[wallet] = true;
-        _accounts[tokenId].walletList.push(wallet);
-        emit WalletApproved(tokenId, wallet);
-    }
-
-    function removeWallet(uint256 tokenId, address wallet) external onlyIssuer {
-        require(_accounts[tokenId].approvedWallets[wallet], "Wallet not approved");
-        _accounts[tokenId].approvedWallets[wallet] = false;
-        for (uint i = 0; i < _accounts[tokenId].walletList.length; i++) {
-            if (_accounts[tokenId].walletList[i] == wallet) {
-                _accounts[tokenId].walletList[i] = _accounts[tokenId].walletList[_accounts[tokenId].walletList.length - 1];
-                _accounts[tokenId].walletList.pop();
-                break;
-            }
+    function setHigherLimit(uint256 tokenId, address wallet, uint256 chainId, uint256 newLimit) external {
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        if (!isWalletAdded(tokenId, wallet)) {
+            _accounts[tokenId].walletList.push(wallet);
         }
-        emit WalletRemoved(tokenId, wallet);
+        _setHigherLimit(tokenId, wallet, chainId, newLimit);
     }
 
-    function approveChain(uint256 chainId) external onlyIssuer {
-        approvedChains[chainId] = true;
-        emit ChainApproved(chainId);
-    }
-
-    function disapproveChain(uint256 chainId) external onlyIssuer {
-        approvedChains[chainId] = false;
-        emit ChainDisapproved(chainId);
-    }
-
-    function enableChain(uint256 tokenId, uint256 chainId) external {
+    function setBulkWalletLimits(
+        uint256 tokenId,
+        address wallet,
+        uint256[] memory chainIds,
+        uint256[] memory newLimits
+    ) external {
         require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
-        require(approvedChains[chainId], "Chain not approved by issuer");
-        _accounts[tokenId].enabledChains[chainId] = true;
-        emit ChainEnabled(tokenId, chainId);
+        if (!isWalletAdded(tokenId, wallet)) {
+            _accounts[tokenId].walletList.push(wallet);
+        }
+        require(chainIds.length == newLimits.length, "Limits leagth should match the chainList length");
+
+        for (uint256 i = 0; i < chainIds.length; i++) {
+            _setHigherLimit(tokenId, wallet, chainIds[i], newLimits[i]);
+        }
     }
 
-    function disableChain(uint256 tokenId, uint256 chainId) external {
-        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
-        _accounts[tokenId].enabledChains[chainId] = false;
-        emit ChainDisabled(tokenId, chainId);
+    function _setHigherLimit(uint256 tokenId, address wallet, uint256 chainId, uint256 newLimit) internal {
+        require(approvedChains[chainId], "Chain not approved by the issuer");
+        uint256 currentLimit = _accounts[tokenId].walletChainLimits[wallet][chainId];
+        require(newLimit > currentLimit, "New limit must be higher than current limit");
+        _accounts[tokenId].walletChainLimits[wallet][chainId] = newLimit;
     }
 
-    function setWalletLimit(uint256 tokenId, address wallet, uint256 limit) external {
+    function setLowerLimit(
+        uint256 tokenId,
+        address wallet,
+        uint256 chainId,
+        uint256 newLimit,
+        uint256 timestamp,
+        bytes memory signature
+    ) external {
         require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
-        require(_accounts[tokenId].approvedWallets[wallet], "Wallet not approved");
-        _accounts[tokenId].walletLimits[wallet] = limit;
-        emit WalletLimitSet(tokenId, wallet, limit);
+        require(isWalletAdded(tokenId, wallet), "Wallet not added");
+        require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+
+        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, chainId, newLimit, timestamp));
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
+
+        _accounts[tokenId].walletChainLimits[wallet][chainId] = newLimit;
+    }
+
+
+    function resetWalletChainLimits(
+        uint256 tokenId,
+        address wallet,
+        uint256 timestamp,
+        bytes memory signature
+    ) public {
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+
+        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, timestamp));
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
+
+        for (uint i = 0; i < chainList.length; i++) {
+            delete _accounts[tokenId].walletChainLimits[wallet][chainList[i]];
+        }
     }
 
     function withdraw(
@@ -167,7 +209,6 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         bytes calldata _extraOptions
     ) external payable {
         require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
-        require(approvedChains[targetChainId], "Chain not   supported");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(nonce == withdrawalNonces[nftId], "Invalid withdraw nonce");
 
@@ -187,7 +228,6 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         bytes calldata _extraOptions
     ) external {
         require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
-        require(approvedChains[targetChainId], "Chain not supported");
         require(chainProofs.length > 0, "No chain proofs provided");
 
         uint256 totalCollateral = 0;
@@ -302,22 +342,6 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         depositContracts[chainId] = IDepositContract(contractAddress);
     }
 
-    function getApprovedWallets(uint256 tokenId) external view returns (address[] memory) {
-        return _accounts[tokenId].walletList;
-    }
-
-    function isWalletApproved(uint256 tokenId, address wallet) external view returns (bool) {
-        return _accounts[tokenId].approvedWallets[wallet];
-    }
-
-    function isChainEnabled(uint256 tokenId, uint256 chainId) external view returns (bool) {
-        return _accounts[tokenId].enabledChains[chainId];
-    }
-
-    function getWalletLimit(uint256 tokenId, address wallet) external view returns (uint256) {
-        return _accounts[tokenId].walletLimits[wallet];
-    }
-
     function getManagers(uint256 tokenId) external view returns (address[] memory) {
         return _accounts[tokenId].managers;
     }
@@ -330,16 +354,28 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         super._increaseBalance(account, value);
     }
 
-    function getCurrentNonce(uint256 nftId) external view returns (uint256) {
+    function getWithdrawNonce(uint256 nftId) external view returns (uint256) {
         return withdrawalNonces[nftId];
     }
 
-    // function _beforeTokenTransfer(address from, address to, uint256 tokenId, uint256 batchSize)
-    //     internal
-    //     override(ERC721, ERC721Enumerable)
-    // {
-    //     super._beforeTokenTransfer(from, to, tokenId, batchSize);
-    // }
+    function getWallets(uint256 tokenId) external view returns (address[] memory) {
+        return _accounts[tokenId].walletList;
+    }
+
+    function isWalletAdded(uint256 tokenId, address wallet) public view returns (bool) {
+        address[] memory wallets = _accounts[tokenId].walletList;
+        for (uint i = 0; i < wallets.length; i++) {
+            if (wallets[i] == wallet) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function getWalletChainLimit(uint256 tokenId, address wallet, uint256 chainId) external view returns (uint256) {
+        return _accounts[tokenId].walletChainLimits[wallet][chainId];
+    }
+
     function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721Enumerable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
