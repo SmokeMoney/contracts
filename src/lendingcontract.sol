@@ -23,16 +23,10 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         uint256 timestamp;
     }
 
-    struct RepayPosition {
-        uint256 amount;
-        uint256 timestamp;
-    }
-
     address public immutable issuer;
     IWETH public immutable WETH;
     
     mapping(uint256 => mapping(address => BorrowPosition)) public borrowPositions; // nftId => wallet => BorrowPosition
-    mapping(uint256 => RepayPosition) public repayPositions; // nftId => RepayPosition
     mapping(uint256 => uint256) public borrowNonces; // nftId => chainId => nonce
     mapping(uint256 => address[]) public borrowers; // nftId => array of borrower addresses
 
@@ -41,14 +35,15 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     uint256 public autogasThreshold;
     uint256 public autogasRefillAmount; // Fixed amount for autogas refill
     uint256 public repaymentThreshold; // Threshold for considering a debt fully repaid
+    uint256 public gasPriceThreshold; // Threshold for considering a debt fully repaid
     uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
     uint256 public immutable chainId;
 
     event Borrowed(uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event BorrowedAndSent(uint256 indexed nftId, address indexed wallet, address recipient, uint256 amount);
+    event BorrowedAndSent(uint256 indexed nftId, address indexed wallet, uint256 amount, address recipient);
     event AutogasTriggered(uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event Repaid(uint256 indexed nftId, uint256 amount);
-    event Lent(uint256 indexed nftId, uint256 amount);
+    event AutogasSpikeTriggered(uint256 indexed nftId, address indexed wallet, uint256 amount);
+    event Repaid(uint256 indexed nftId, address indexed wallet, uint256 amount);
     event PoolDeposited(uint256 amount);
     event PoolWithdrawn(uint256 amount);
 
@@ -56,9 +51,10 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         issuer = _issuer;
         WETH = IWETH(_weth);
         borrowInterestRate = 1000; // 10% annual interest
-        autogasThreshold = 1e18; // 1 ETH
-        autogasRefillAmount = 5e17; // 0.5 ETH, adjust as needed
-        repaymentThreshold = 1e13; // 0.00000001 ETH
+        autogasThreshold = 1e15; // 0.001 ETH
+        autogasRefillAmount = 5e14  ; // 0.0005 ETH, adjust as needed
+        repaymentThreshold = 1e13; // 0.00001 ETH aka $0.035 at current prices
+        gasPriceThreshold = 2; 
         chainId = _chainId;
     }
 
@@ -90,37 +86,42 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         borrowNonces[nftId]++;
     }
 
-    
     function borrowWithSignature(
         uint256 nftId,
         uint256 amount,
         uint256 timestamp,
         uint256 nonce,
+        address recipient,
         bytes memory userSignature,
         bytes memory issuerSignature
     ) external nonReentrant {
         require(amount > 0, "Borrow amount must be greater than 0");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(nonce == borrowNonces[nftId], "Invalid nonce");
-
-        bytes32 messageHash = keccak256(abi.encodePacked(nftId, amount, timestamp, nonce, chainId));
+        
+        // The borrower can be different from the signer. The signer signs with borrower's address in the signature. 
+        // The issuer verifies that the signature is from the signer himself. If not he won't approve it. 
+        bytes32 messageHash = keccak256(abi.encodePacked(recipient, nftId, amount, timestamp, nonce, chainId));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         
         address signer = ethSignedMessageHash.recover(userSignature);
         require(ethSignedMessageHash.recover(issuerSignature) == issuer, "Invalid signature");
 
-        _executeBorrow(nftId, signer, amount);
+        uint256 gasStart = gasleft();
+        _executeBorrowAndSend(nftId, signer, amount, recipient);
+        uint256 gasUsed = gasStart - gasleft();
+        uint256 paymentAmount = gasUsed * tx.gasprice * 2;
+        _executeBorrowAndSend(nftId, signer, paymentAmount, msg.sender);
         borrowNonces[nftId]++;
     }
 
     function _executeBorrow(uint256 nftId, address wallet, uint256 amount) internal {
-        
-        BorrowPosition storage borrowPosition = borrowPositions[nftId][msg.sender];
+        BorrowPosition storage borrowPosition = borrowPositions[nftId][wallet];
         
         uint256 borrowInterest = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
         
-        if (!isBorrower(nftId, msg.sender)) {
-            borrowers[nftId].push(msg.sender);
+        if (!isBorrower(nftId, wallet)) {
+            borrowers[nftId].push(wallet);
         }
 
         borrowPosition.amount += borrowInterest + amount;
@@ -131,6 +132,25 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         require(success, "ETH transfer failed");
 
         emit Borrowed(nftId, wallet, amount);
+    }
+
+    function _executeBorrowAndSend(uint256 nftId, address wallet, uint256 amount, address recipient) internal {
+        BorrowPosition storage borrowPosition = borrowPositions[nftId][wallet];
+        
+        uint256 borrowInterest = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
+        
+        if (!isBorrower(nftId, wallet)) {
+            borrowers[nftId].push(wallet);
+        }
+
+        borrowPosition.amount += borrowInterest + amount;
+        borrowPosition.timestamp = block.timestamp;
+
+        WETH.withdraw(amount);
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "ETH transfer failed");
+
+        emit BorrowedAndSent(nftId, wallet, amount, recipient);
     }
 
     function isBorrower(uint256 nftId, address wallet) internal view returns (bool) {
@@ -145,46 +165,75 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
 
     function triggerAutogas(uint256 nftId, address wallet) external onlyIssuer {
         require(wallet.balance < autogasThreshold, "Balance above threshold");
-        
+
         _executeBorrow(nftId, wallet, autogasRefillAmount);
 
         emit AutogasTriggered(nftId, wallet, autogasRefillAmount);
     }
 
-    function repay(uint256 nftId) external payable nonReentrant {
+    function triggerAutogasSpike(uint256 nftId, address wallet) external onlyIssuer {
+        require(wallet.balance < autogasThreshold, "Balance above threshold");
+        require(gasPriceThreshold <= tx.gasprice, "Gas price is below threshold");
+
+        uint256 gasStart = gasleft();
+        _executeBorrow(nftId, wallet, autogasRefillAmount);
+        uint256 gasUsed = gasStart - gasleft();
+        uint256 paymentAmount = gasUsed * tx.gasprice * 2;
+        _executeBorrowAndSend(nftId, wallet, paymentAmount, issuer);
+
+        emit AutogasSpikeTriggered(nftId, wallet, autogasRefillAmount);
+    }
+
+    function repay(uint256 nftId, address wallet, address refundAddress) external payable nonReentrant {
         require(msg.value > 0, "Repay amount must be greater than 0");
         
-        uint256 totalBorrowed = 0;
-        address[] storage nftBorrowers = borrowers[nftId];
-        
-        for (uint i = 0; i < nftBorrowers.length; i++) {
-            address borrower = nftBorrowers[i];
-            BorrowPosition storage borrowPosition = borrowPositions[nftId][borrower];
-            if (borrowPosition.amount > 0) {
-                uint256 borrowInterest = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
-                totalBorrowed += borrowPosition.amount + borrowInterest;
-            }
-        }
-        
-        RepayPosition storage repayPosition = repayPositions[nftId];
-        uint256 repayInterest = calculateCompoundInterest(repayPosition.amount, repayPosition.timestamp, borrowInterestRate);
-        uint256 currentRepayAmount = repayPosition.amount + repayInterest;
-        
-        uint256 maxRepayable = totalBorrowed > currentRepayAmount ? totalBorrowed - currentRepayAmount : 0;
-        uint256 actualRepayAmount = msg.value > maxRepayable ? maxRepayable : msg.value;
-        
-        if (actualRepayAmount > 0) {
-            repayPosition.amount += actualRepayAmount + repayInterest;
-            repayPosition.timestamp = block.timestamp;
+        BorrowPosition storage borrowPosition = borrowPositions[nftId][wallet];
+        require(borrowPosition.amount > 0, "No borrow position for this NFT and wallet");
 
-            WETH.deposit{value: actualRepayAmount}();
+        uint256 borrowInterest = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
+        uint256 totalOwed = borrowPosition.amount + borrowInterest;
+        
+        uint256 repayAmount = msg.value > totalOwed ? totalOwed : msg.value;
+        borrowPosition.amount = totalOwed > repayAmount ? totalOwed - repayAmount : 0;
+        borrowPosition.timestamp = block.timestamp;
+
+        WETH.deposit{value: repayAmount}();
+        
+        if (repayAmount < msg.value) {
+            uint256 refundAmount = msg.value - repayAmount;
+            (bool success, ) = refundAddress.call{value: refundAmount}("");
+            require(success, "ETH refund failed");
+        }
+
+        emit Repaid(nftId, wallet, repayAmount);
+    }
+
+    function repayMultiple(uint256[] memory nftIds, address[] memory wallets, uint256[] memory amounts, address refundAddress) external payable nonReentrant {
+        require(nftIds.length == wallets.length && wallets.length == amounts.length, "Arrays length mismatch");
+        require(msg.value > 0, "Repay amount must be greater than 0");
+        
+        uint256 totalRepaid = 0;
+        
+        for (uint i = 0; i < nftIds.length; i++) {
+            BorrowPosition storage borrowPosition = borrowPositions[nftIds[i]][wallets[i]];
+            require(borrowPosition.amount > 0, "No borrow position for this NFT and wallet");
+    
+            uint256 borrowInterest = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
+            uint256 totalOwed = borrowPosition.amount + borrowInterest;
             
-            emit Repaid(nftId, actualRepayAmount);
+            uint256 repayAmount = amounts[i] > totalOwed ? totalOwed : amounts[i];
+            borrowPosition.amount = totalOwed - repayAmount;
+            borrowPosition.timestamp = block.timestamp;
+    
+            totalRepaid += repayAmount;
+            emit Repaid(nftIds[i], wallets[i], repayAmount);
         }
-
-        if (actualRepayAmount < msg.value) {
-            uint256 refundAmount = msg.value - actualRepayAmount;
-            (bool success, ) = msg.sender.call{value: refundAmount}("");
+    
+        require(totalRepaid <= msg.value, "Insufficient ETH sent");
+        WETH.deposit{value: totalRepaid}();
+        
+        if (totalRepaid < msg.value) {
+            (bool success, ) = refundAddress.call{value: msg.value - totalRepaid}("");
             require(success, "ETH refund failed");
         }
     }
@@ -213,30 +262,18 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
 
     function getNetPosition(uint256 nftId, address wallet) external view returns (int256) {
         BorrowPosition memory borrowPosition = borrowPositions[nftId][wallet];
-        RepayPosition memory repayPosition = repayPositions[nftId];
-
         uint256 borrowAmount = borrowPosition.amount + calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
-        uint256 repayAmount = repayPosition.amount + calculateCompoundInterest(repayPosition.amount, repayPosition.timestamp, borrowInterestRate);
-
-        int256 netPosition = int256(repayAmount) - int256(borrowAmount);
         
-        if (netPosition > -int256(repaymentThreshold) && netPosition < int256(repaymentThreshold)) {
+        if (borrowAmount < repaymentThreshold) {
             return 0; // Consider the debt fully repaid if within the threshold
         }
-        
-        return netPosition;
+        return -int256(borrowAmount);
     }
 
     function getBorrowPosition(uint256 nftId, address wallet) external view returns (uint256) {
         BorrowPosition memory borrowPosition = borrowPositions[nftId][wallet];
         uint256 borrowAmount = borrowPosition.amount + calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
         return borrowAmount;
-    }
-
-    function getRepayPosition(uint256 nftId) external view returns (uint256) {
-        RepayPosition memory repayPosition = repayPositions[nftId];
-        uint256 repayAmount = repayPosition.amount + calculateCompoundInterest(repayPosition.amount, repayPosition.timestamp, borrowInterestRate);
-        return repayAmount;
     }
 
     function poolDeposit(uint256 amount) external payable onlyIssuer {
@@ -275,5 +312,4 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     function getCurrentNonce(uint256 nftId) external view returns (uint256) {
         return borrowNonces[nftId];
     }
-
 }

@@ -105,7 +105,7 @@ contract DepositTest is TestHelperOz5 {
         vm.startPrank(user);
         nftContract.setHigherLimit(tokenId, address(user), aEid, 1 * 10**18);
         vm.stopPrank();
-
+        
 
     }
 
