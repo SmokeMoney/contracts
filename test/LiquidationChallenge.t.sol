@@ -91,7 +91,7 @@ contract DepositTest is TestHelperOz5 {
         vm.stopPrank();
 
         nftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
-        
+        console.log(address(this));
         lendingcontract = new CrossChainLendingContract(issuer, address(weth), uint256(aEid));
         lendingcontractB = new CrossChainLendingContract(issuer, address(weth), uint256(bEid));
         lendingcontractC = new CrossChainLendingContract(issuer, address(weth), uint256(cEid));
@@ -184,13 +184,13 @@ contract DepositTest is TestHelperOz5 {
 
         uint256[] memory amounts = new uint256[](4);
         amounts[0] = 1.1 * 10**18;
-        amounts[1] = 2 * 10**18;
-        amounts[2] = 0.1 * 10**18;
+        amounts[1] = 3 * 10**18;
+        amounts[2] = 0.2 * 10**18;
         amounts[3] = 0 * 10**18;
         
         nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, true);
         amounts[0] = 0 * 10**18;
-        amounts[1] = 2 * 10**18;
+        amounts[1] = 3 * 10**18;
         amounts[2] = 10 * 10**18;
         amounts[3] = 0.3 * 10**18;
         nftContract.setHigherBulkLimits(tokenId, address(user2), chainIds, amounts, true);
@@ -199,26 +199,24 @@ contract DepositTest is TestHelperOz5 {
         vm.stopPrank();
         
         assertEq(depositCrossB.getDepositAmount(address(weth), tokenId), 1 * 10**18);
-    }
 
-    function testOraclePriceUpdate() public {
 
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(0.5 * 10**18), timestamp, uint256(0), uint256(bEid)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(2.8 * 10**18), timestamp, uint256(0), uint256(bEid)));
         bytes memory signature = getIssuersSig(digest); // note the order here is different from line above.
 
         vm.startPrank(user2);
-        lendingcontractB.borrow(tokenId, uint256(0.5 * 10**18), timestamp, uint256(0), signature);
+        lendingcontractB.borrow(tokenId, uint256(2.8 * 10**18), timestamp, uint256(0), signature);
         vm.stopPrank();
 
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
-        digest = keccak256(abi.encodePacked(user, tokenId, uint256(0.1 * 10**18), timestamp, uint256(0), uint256(cEid)));
+        digest = keccak256(abi.encodePacked(user, tokenId, uint256(0.19 * 10**18), timestamp, uint256(0), uint256(cEid)));
         signature = getIssuersSig(digest); 
 
         vm.startPrank(user);
-        lendingcontractC.borrow(tokenId, uint256(0.1 * 10**18), timestamp, uint256(0), signature);
+        lendingcontractC.borrow(tokenId, uint256(0.19 * 10**18), timestamp, uint256(0), signature);
         vm.stopPrank();
 
 
@@ -226,14 +224,41 @@ contract DepositTest is TestHelperOz5 {
         console.log("User's borrow pos on chain 3: ", lendingcontractC.getBorrowPosition(tokenId, user));
         console.log("User's borrow pos on chain 2: ", lendingcontractB.getBorrowPosition(tokenId, user2));
         
+    }
+
+    function testOptimisticLiquidation() public {
+
+        vm.warp(1720962281);
+        vm.startPrank(issuer);
+        weth.deposit{value:0.1 * 1e18}();
+        weth.approve(address(depositCrossB), 0.1 * 1e18);
+        depositCrossB.lockForLiquidation(address(weth), tokenId, 1e18);
+        vm.warp(1721073281);
+        depositCrossB.executeLiquidation(address(weth), tokenId, 1e18);
+        vm.stopPrank();
+        
+    }
+
+    function testLiquidationChallenge() public {
+
+        vm.warp(1724984381);
+        vm.startPrank(issuer);
+        weth.deposit{value:1 * 1e18}();
+        weth.approve(address(depositCrossB), 0.1 * 1e18);
+        weth.approve(address(depositLocal), 0.1 * 1e18);
+        depositCrossB.lockForLiquidation(address(weth), tokenId, 1e18);
+        depositLocal.lockForLiquidation(address(weth), tokenId, 1e18);
+        vm.stopPrank();
+
+        vm.warp(1724985381);
         bytes[] memory updateData = createWstEthUpdate(4051);
         setEthPrice(3453);
-        vm.startPrank(user);
-        uint256 assembleId = accountOps.createAssemblePositions{value: ETH_TO_WEI / 100}(tokenId, true, address(user), updateData);
+        vm.startPrank(userB);
+        uint256 assembleId = accountOps.createAssemblePositions{value: ETH_TO_WEI / 100}(tokenId, false, address(userB), updateData);
         vm.stopPrank();
+
         vm.startPrank(user);
-        vm.expectRevert();
-        accountOps.createAssemblePositions{value: ETH_TO_WEI / 100}(tokenId, true, address(user), updateData);
+        lendingcontractB.repay{value: 1e18}(tokenId, address(user2), address(user));
         vm.stopPrank();
 
         bytes memory extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(200000, 0); // gas settings for B -> A
@@ -279,61 +304,34 @@ contract DepositTest is TestHelperOz5 {
         
         assertEq(accountOps.getAssembleChainsReported(assembleId), 4);
 
+        console.log(weth.balanceOf(issuer));
+        vm.startPrank(userB);
+        accountOps.liquidationChallenge(assembleId, address(weth), aEid, address(userB), new bytes(0));
 
-        uint256[] memory withdrawAmounts = new uint256[](2);
-        uint32[] memory targetChainIds = new uint32[](2);
-        withdrawAmounts[0] = 0.9 * 1e18;
-        withdrawAmounts[1] = 0.69 * 1e18;
-        targetChainIds[0] = aEid;
-        targetChainIds[1] = bEid;
 
-        extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(150000, 0); // gas settings for B -> A
+        extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(70000, 0); // gas settings for B -> A
 
         payload = abi.encode(
-            address(user),
-            address(weth),
+            address(0),
+            address(0),
             tokenId,
-            0.9 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
+            assembleId, // random uint256, just for calculations
+            assembleId, // random uint256, just for calculations
+            assembleId
         );
 
-        sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
+        sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(2, payload), extraOptions, false);
 
-        vm.startPrank(user);
-        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, address(weth), withdrawAmounts, targetChainIds, extraOptions, address(user));
-        vm.stopPrank();
+        accountOps.liquidationChallenge{value: sendFee.nativeFee}(assembleId, address(weth), bEid, address(userB), extraOptions);
+
         verifyPackets(bEid, addressToBytes32(address(depositCrossB)));
-
-        assertEq(depositCrossB.getDepositAmount(address(weth), tokenId), 0.31 * 1e18);
-
-        withdrawAmounts = new uint256[](1);
-        targetChainIds = new uint32[](1);
-        withdrawAmounts[0] = 0.7 * 1e18;
-        targetChainIds[0] = dEid;
-
-        vm.startPrank(user);
-        accountOps.markAssembleComplete(assembleId);
         vm.stopPrank();
-        extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(90000, 0); // gas settings for B -> A
+        console.log(weth.balanceOf(issuer));
 
-        payload = abi.encode(
-            address(user),
-            address(weth),
-            tokenId,
-            1 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
-        );
+        assertEq(depositLocal.isLiquidationLocked(address(weth), tokenId), false);
+        assertEq(depositCrossB.isLiquidationLocked(address(weth), tokenId), false);
 
-        sendFee = accountOps.quote(dEid, SEND, payload, extraOptions, false);
-        vm.startPrank(user);
-        vm.expectRevert();
-        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, address(wstETH), withdrawAmounts, targetChainIds, extraOptions, address(user));
-        vm.stopPrank();
-        verifyPackets(dEid, addressToBytes32(address(depositCrossD)));
-
-        // assertEq(depositCrossD.getDepositAmount(address(wstETH), tokenId), 0.3 * 10**18);
-        vm.prank(issuer);
-    }   
+    }
 
     function getIssuersSig(bytes32 digest) private view returns (bytes memory signature) {
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
@@ -356,6 +354,7 @@ contract DepositTest is TestHelperOz5 {
             wstETHDepositAmount, 
             wethAddress, 
             wstETHAddress,
+            depositAmount,
             walletsReqChain,
             borrowAmounts,
             interestAmounts

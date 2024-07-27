@@ -5,3 +5,11 @@ libs = ["lib"]
 ignored_error_codes = ["unused-param"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# --snip--
+[rpc_endpoints]
+optimism = "${RPC_MAINNET}"
+mainnet = "${RPC_MAINNET}"
+optimism_sepolia = "https://optimism-sepolia.blockpi.network/v1/rpc/public"
+mainnet_sepolia = "https://eth-sepolia.public.blastapi.io"
+arbitrum_sepolia = "https://public.stackup.sh/api/v1/node/arbitrum-sepolia" 

@@ -3,7 +3,8 @@
 
     import "forge-std/Test.sol";
     import "../src/deposit.sol";
-    import "../src/nftaccounts.sol";
+    import "../src/corenft.sol";
+    import "../src/accountops.sol";
     import "../src/weth.sol";
     import "../src/siggen.sol";
     import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -20,7 +21,8 @@
         using ECDSA for bytes32;
 
         AdminDepositContract public deposit;
-        CrossChainLendingAccount public nftContract;
+        CoreNFTContract public nftContract;
+        OperationsContract public accountOps;
         SignatureGenerator public siggen;
         WETH public weth;
         MockERC20 public mockToken;
@@ -41,18 +43,19 @@
             setUpEndpoints(2, LibraryType.UltraLightNode);
             
             vm.startPrank(issuer);
-            nftContract = new CrossChainLendingAccount("AutoGas", "OG", issuer, endpoints[aEid], issuer, 1);
-            // mockToken = new MockERC20();
+
+            nftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
+            accountOps = new OperationsContract(address(nftContract), address(endpoints[aEid]), address(0), issuer, issuer, 1);
             weth = new WETH();
             siggen = new SignatureGenerator();
-            deposit = new AdminDepositContract(issuer, address(nftContract), address(endpoints[aEid]), issuer);
+            deposit = new AdminDepositContract(issuer, address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), issuer);
             deposit.addSupportedToken(address(weth));
 
             nftContract.approveChain(aEid); // Adding a supported chain
-            nftContract.setDepositContract(aEid, address(deposit)); // Adding the deposit contract
+            accountOps.setDepositContract(aEid, address(deposit)); // Adding the deposit contract
             vm.stopPrank();
 
-            assertEq(nftContract.adminChainId(), aEid);
+            assertEq(accountOps.adminChainId(), aEid);
 
             // The user is getting some WETH
             vm.deal(user, 100 ether);
@@ -93,7 +96,7 @@
 
             bytes memory options = new bytes(0);
             vm.startPrank(user);
-            nftContract.withdraw(address(weth), tokenId, 0.1 * 10**18, aEid, timestamp, 1, signature, options);
+            accountOps.withdraw(address(weth), tokenId, 0.1 * 10**18, aEid, timestamp, 1, signature, options, address(user));
             vm.stopPrank();
             assertEq(deposit.getDepositAmount(address(weth), tokenId), 0.9 * 10**18);
         }

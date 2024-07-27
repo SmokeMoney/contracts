@@ -22,15 +22,25 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         uint256 amount;
         uint256 timestamp;
     }
-
+    struct InterestRateChange {
+        uint256 timestamp;
+        uint256 rate;
+    }
+    
+    
+    
     address public immutable issuer;
     IWETH public immutable WETH;
     
+    InterestRateChange[] public interestRateHistory;
     mapping(uint256 => mapping(address => BorrowPosition)) public borrowPositions; // nftId => wallet => BorrowPosition
-    mapping(uint256 => uint256) public borrowNonces; // nftId => chainId => nonce
+    mapping(uint256 => uint256) public borrowNonces; // nftId => nonce
     mapping(uint256 => address[]) public borrowers; // nftId => array of borrower addresses
 
     uint256 public borrowInterestRate; // Annual interest rate in basis points (1% = 100)
+    uint256 public scheduleInterestRate;
+    uint256 public scheduleInterestRateTimestamp;
+    uint256 public constant RATE_CHANGE_DELAY = 15 days;
     uint256 public constant SECONDS_PER_YEAR = 31536000;
     uint256 public autogasThreshold;
     uint256 public autogasRefillAmount; // Fixed amount for autogas refill
@@ -46,6 +56,9 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     event Repaid(uint256 indexed nftId, address indexed wallet, uint256 amount);
     event PoolDeposited(uint256 amount);
     event PoolWithdrawn(uint256 amount);
+    event InterestRateChangeScheduled(uint256 oldRate, uint256 newRate, uint256 effectiveTimestamp);
+    event InterestRateChanged(uint256 oldRate, uint256 newRate);
+
 
     constructor(address _issuer, address _weth, uint256 _chainId) Ownable(msg.sender) {
         issuer = _issuer;
@@ -238,9 +251,31 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         }
     }
 
-    function calculateCompoundInterest(uint256 principal, uint256 lastUpdateTime, uint256 interestRate) internal view returns (uint256) {
+    function calculateCompoundInterest(uint256 principal, uint256 lastUpdateTime, uint256 currentInterestRate) internal view returns (uint256) {
         if (principal == 0) return 0;
-        uint256 timeElapsed = block.timestamp - lastUpdateTime;
+    
+        uint256 totalInterest = 0;
+        uint256 currentPrincipal = principal;
+        uint256 currentTime = lastUpdateTime;
+    
+        for (uint i = 0; i < interestRateHistory.length && interestRateHistory[i].timestamp <= block.timestamp; i++) {
+            if (interestRateHistory[i].timestamp > lastUpdateTime) {
+                uint256 periodInterest = calculatePeriodInterest(currentPrincipal, currentTime, interestRateHistory[i].timestamp, currentInterestRate);
+                totalInterest += periodInterest;
+                currentPrincipal += periodInterest;
+                currentTime = interestRateHistory[i].timestamp;
+                currentInterestRate = interestRateHistory[i].rate;
+            }
+        }
+    
+        // Calculate interest for the final period
+        totalInterest += calculatePeriodInterest(currentPrincipal, currentTime, block.timestamp, currentInterestRate);
+    
+        return totalInterest;
+    }
+    
+    function calculatePeriodInterest(uint256 principal, uint256 startTime, uint256 endTime, uint256 interestRate) internal pure returns (uint256) {
+        uint256 timeElapsed = endTime - startTime;
         uint256 ratePerSecond = interestRate * 1e18 / (SECONDS_PER_YEAR * 10000); // Convert basis points to per-second rate
         uint256 compoundFactor = compoundExponent(ratePerSecond, timeElapsed);
         uint256 compoundedAmount = (principal * compoundFactor) / 1e18;
@@ -270,10 +305,16 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         return -int256(borrowAmount);
     }
 
-    function getBorrowPosition(uint256 nftId, address wallet) external view returns (uint256) {
+    function getBorrowPosition(uint256 nftId, address wallet) external view returns (uint256 borrowAmount) {
         BorrowPosition memory borrowPosition = borrowPositions[nftId][wallet];
-        uint256 borrowAmount = borrowPosition.amount + calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
-        return borrowAmount;
+        borrowAmount = borrowPosition.amount + calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
+    }
+
+    function getBorrowPositionSeparate(uint256 nftId, address wallet) external view returns (uint256 borrowAmount, uint256 interestAmount, uint256 borrowTimestamp) {
+        BorrowPosition memory borrowPosition = borrowPositions[nftId][wallet];
+        borrowAmount = borrowPosition.amount;
+        borrowTimestamp = borrowPosition.timestamp;
+        interestAmount = calculateCompoundInterest(borrowPosition.amount, borrowPosition.timestamp, borrowInterestRate);
     }
 
     function poolDeposit(uint256 amount) external payable onlyIssuer {
@@ -293,8 +334,24 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
 
-    function setBorrowInterestRate(uint256 newRate) external onlyOwner {
-        borrowInterestRate = newRate;
+    function scheduleInterestRateChange(uint256 newRate) external onlyOwner {
+        require(newRate <= borrowInterestRate * 150 / 100, "can't be increased by more than 50%");
+        uint256 oldRate = borrowInterestRate;
+
+        scheduleInterestRate = newRate;
+        scheduleInterestRateTimestamp = block.timestamp;
+        emit InterestRateChangeScheduled(oldRate, newRate, block.timestamp + RATE_CHANGE_DELAY);
+    }
+
+    function setInterestRate() external onlyOwner{
+        require(scheduleInterestRate != 0, "No scheduled rate change");
+        require(block.timestamp > scheduleInterestRateTimestamp + RATE_CHANGE_DELAY, "Delay period not yet passed");
+        uint256 oldRate = borrowInterestRate;
+        borrowInterestRate = scheduleInterestRate;
+        interestRateHistory.push(InterestRateChange(block.timestamp, borrowInterestRate));
+        scheduleInterestRate = 0;
+        scheduleInterestRateTimestamp = 0;
+        emit InterestRateChanged(oldRate, borrowInterestRate);
     }
 
     function setAutogasThreshold(uint256 newThreshold) external onlyOwner {

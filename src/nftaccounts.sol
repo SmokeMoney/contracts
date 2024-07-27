@@ -7,32 +7,72 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
 interface IDepositContract {
-    function executeWithdrawal(address user, address token, uint256 nftId, uint256 amount) external;
+    function executeWithdrawal(address user, address token, uint256 tokenId, uint256 amount) external;
 }
 
 contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OAppOptionsType3 {
     using ECDSA for bytes32;
 
     uint256 private _currentTokenId;
+    uint256 private _currentAssembleId;
 
     struct Account {
         mapping(address => mapping(uint256 => uint256)) walletChainLimits;
         address[] walletList;
         address[] managers;
+        mapping(address => bool) autogas;
+        uint256 extraLimit;
     }
 
+    struct AssemblePositions {
+        uint256 nftId;
+        mapping(uint256 => bool) chainReported;
+        mapping(address => mapping(uint256 => uint256)) borrowPositions;
+        mapping(uint256 => uint256) depositPositions;
+        mapping(uint256 => uint256) wstETHDepositPositions;
+        mapping(uint256 => address) wethAddresses;
+        mapping(uint256 => address) wstETHAddresses;
+        uint256 totalAvailableToWithdraw;
+        bool isComplete;
+        bool forWithdrawal;
+        uint256 timestamp;
+    }
+
+    struct AssembleData {
+        uint256 assembleId;
+        uint256 nftId;
+        uint256 depositAmount;
+        uint256 wstETHDepositAmount;
+        address wethAddress;
+        address wstETHAddress;
+    }
+    
+    struct WalletData {
+        address[] wallets;
+        uint256[] borrowAmounts;
+        uint256[] interestAmounts;
+    }
+
+    IPyth pyth;
     mapping(uint256 => Account) private _accounts;
+    mapping(uint256 => AssemblePositions) private _assemblePositions;
     address public issuer;
     mapping(uint256 => bool) public approvedChains;
     uint256[] public chainList;
     uint256 public immutable adminChainId;
-    mapping(uint256 => uint256) public withdrawalNonces; // nftId => chainId => nonce
+    mapping(uint256 => uint256) public withdrawalNonces; // tokenId => nonce
+    mapping(uint256 => uint256) public lowerLimitNonces; // tokenId => nonce
     mapping(uint256 => IDepositContract) public depositContracts;
 
     uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
     string public data = "Nothing received yet";
+    uint256 public constant LTV_RATIO = 90; // 90% LTV ratio
+    uint256 public constant WSTETH_ETH_RATIO = 1100000000000000000; // 1.1 ETH per wstETH (example value)
+
 
     event ManagerAdded(uint256 indexed tokenId, address manager);
     event ManagerRemoved(uint256 indexed tokenId, address manager);
@@ -44,17 +84,21 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     event ChainAdded(uint256 chainId);
     event ChainApproved(uint256 chainId);
     event ChainDisapproved(uint256 chainId);
-    event Withdrawn(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
-    event ForcedWithdrawalExecuted(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
-    event CrossChainWithdrawalInitiated(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
+    event Withdrawn(uint256 indexed tokenId, address indexed token, uint256 amount, uint32 targetChainId);
+    event CrossChainWithdrawalInitiated(uint256 indexed tokenId, address indexed token, uint256 amount, uint32 targetChainId);
+    event ChainPositionReported(uint256 indexed assembleId, uint256 chainId);
+    event ForcedWithdrawalExecuted(uint256 indexed assembleId, address indexed token, uint256 amount, uint32 targetChainId);
+    event AssemblePositionsCreated(uint256 indexed assembleId, uint256 indexed nftId, bool forWithdrawal);
 
-    constructor(string memory name, string memory symbol, address _issuer, address _endpoint, address _owner, uint256 _adminChainId) 
+
+    constructor(string memory name, string memory symbol, address _issuer, address _endpoint, address pythContract, address _owner, uint256 _adminChainId) 
         ERC721(name, symbol) 
         OApp(_endpoint, _owner)
         Ownable(msg.sender)
     {
         issuer = _issuer;
         adminChainId = _adminChainId;
+        pyth = IPyth(pythContract);
     }
 
     modifier onlyIssuer() {
@@ -89,6 +133,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         _currentTokenId++;
         uint256 newTokenId = _currentTokenId;
         withdrawalNonces[newTokenId] = 1;
+        _accounts[newTokenId].extraLimit = 5e15; //0.005
         _safeMint(msg.sender, newTokenId);
         return newTokenId;
     }
@@ -136,21 +181,22 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         _setHigherLimit(tokenId, wallet, chainId, newLimit);
     }
 
-    function setBulkWalletLimits(
+    function setHigherBulkLimits(
         uint256 tokenId,
         address wallet,
         uint256[] memory chainIds,
-        uint256[] memory newLimits
+        uint256[] memory newLimits,
+        bool autogas
     ) external {
         require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
         if (!isWalletAdded(tokenId, wallet)) {
             _accounts[tokenId].walletList.push(wallet);
         }
         require(chainIds.length == newLimits.length, "Limits leagth should match the chainList length");
-
         for (uint256 i = 0; i < chainIds.length; i++) {
             _setHigherLimit(tokenId, wallet, chainIds[i], newLimits[i]);
         }
+        _accounts[tokenId].autogas[wallet] = autogas;
     }
 
     function _setHigherLimit(uint256 tokenId, address wallet, uint256 chainId, uint256 newLimit) internal {
@@ -166,41 +212,71 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         uint256 chainId,
         uint256 newLimit,
         uint256 timestamp,
+        uint256 nonce, 
         bytes memory signature
     ) external {
         require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
         require(isWalletAdded(tokenId, wallet), "Wallet not added");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+        require(nonce == lowerLimitNonces[tokenId], "Invalid limit change nonce");
 
-        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, chainId, newLimit, timestamp));
+        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, chainId, newLimit, timestamp, nonce));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
 
         _accounts[tokenId].walletChainLimits[wallet][chainId] = newLimit;
+        lowerLimitNonces[tokenId]++;
     }
 
+    function setLowerBulkLimits(
+        uint256 tokenId,
+        address wallet,
+        uint256[] memory chainIds,
+        uint256[] memory newLimits,
+        uint256 timestamp,
+        uint256 nonce,
+        bytes memory signature
+    ) external {
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        require(isWalletAdded(tokenId, wallet), "Wallet not added");
+        require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+        require(chainIds.length == newLimits.length, "Limits leagth should match the chainList length");
+        require(nonce == lowerLimitNonces[tokenId], "Invalid limit change nonce");
+
+        bytes32 messageHash = keccak256(abi.encode(tokenId, wallet, chainIds, newLimits, timestamp, nonce));
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
+
+        for (uint256 i = 0; i < chainIds.length; i++) {
+            _accounts[tokenId].walletChainLimits[wallet][chainIds[i]] = newLimits[i];
+        }
+        lowerLimitNonces[tokenId]++;
+    }
 
     function resetWalletChainLimits(
         uint256 tokenId,
         address wallet,
         uint256 timestamp,
+        uint256 nonce,
         bytes memory signature
     ) public {
         require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+        require(nonce == lowerLimitNonces[tokenId], "Invalid limit change nonce");
 
-        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, timestamp));
+        bytes32 messageHash = keccak256(abi.encodePacked(tokenId, wallet, timestamp, nonce));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
 
         for (uint i = 0; i < chainList.length; i++) {
             delete _accounts[tokenId].walletChainLimits[wallet][chainList[i]];
         }
+        lowerLimitNonces[tokenId]++;
     }
 
     function withdraw(
         address token,
-        uint256 nftId,
+        uint256 tokenId,
         uint256 amount,
         uint32 targetChainId,
         uint256 timestamp,
@@ -208,70 +284,38 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         bytes memory signature,
         bytes calldata _extraOptions
     ) external payable {
-        require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
-        require(nonce == withdrawalNonces[nftId], "Invalid withdraw nonce");
+        require(nonce == withdrawalNonces[tokenId], "Invalid withdraw nonce");
 
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, token, nftId, amount, targetChainId, timestamp, nonce));
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, token, tokenId, amount, targetChainId, timestamp, nonce));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         require(ethSignedMessageHash.recover(signature) == issuer, "Invalid withdraw signature");
 
-        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId, _extraOptions);
+        _executeWithdrawal(msg.sender, token, tokenId, amount, targetChainId, _extraOptions);
     }
 
-    function forcedWithdrawal(
-        uint256 nftId,
-        address token,
-        uint256 amount,
-        uint32 targetChainId,
-        bytes[] calldata chainProofs,
-        bytes calldata _extraOptions
-    ) external {
-        require(isManagerOrOwner(nftId, msg.sender), "Not authorized");
-        require(chainProofs.length > 0, "No chain proofs provided");
-
-        uint256 totalCollateral = 0;
-        uint256 totalBorrowed = 0;
-
-        // for (uint256 i = 0; i < chainProofs.length; i++) {
-        //     IDepositContract depositContract = depositContracts[targetChainId];
-        //     require(address(depositContract) != address(0), "Deposit contract not set for this chain");
-
-        //     (uint256 chainId, uint256 collateral, uint256 borrowed) = depositContract.verifyChainProof(nftId, chainProofs[i]);
-        //     require(approvedChains[chainId], "Unsupported chain in proof");
-        //     require(_accounts[nftId].enabledChains[chainId], "Chain not enabled for this NFT");
-        //     totalCollateral += collateral;
-        //     totalBorrowed += borrowed;
-        // }
-
-        require(totalCollateral >= totalBorrowed + amount, "Insufficient collateral for withdrawal");
-
-        _executeWithdrawal(msg.sender, token, nftId, amount, targetChainId, _extraOptions);
-
-        emit ForcedWithdrawalExecuted(nftId, token, amount, targetChainId);
-    }
-
-    function _executeWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
+    function _executeWithdrawal(address user, address token, uint256 tokenId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];
             require(address(depositContract) != address(0), "Deposit contract not set for this chain");
-            depositContract.executeWithdrawal(user, token, nftId, amount);
-            emit Withdrawn(nftId, token, amount, targetChainId);
+            depositContract.executeWithdrawal(user, token, tokenId, amount);
+            emit Withdrawn(tokenId, token, amount, targetChainId);
+            withdrawalNonces[tokenId]++;
         } else {
-            _initiateCrossChainWithdrawal(user, token, nftId, amount, targetChainId, _extraOptions);
+            _initiateCrossChainWithdrawal(user, token, tokenId, amount, targetChainId, _extraOptions);
         }
     }
 
-    function _initiateCrossChainWithdrawal(address user, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
-        // require(approvedChains[targetChainId], "Target chain not approved"); NO NEED TO CHECK THIS. IT DOESN"T HAVE TO BE APPROVED
+    function _initiateCrossChainWithdrawal(address user, address token, uint256 tokenId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
         
         // Prepare the payload for the cross-chain message
         bytes memory payload = abi.encode(
             user,
             token,
-            nftId,
+            tokenId,
             amount,
-            withdrawalNonces[nftId]
+            withdrawalNonces[tokenId]
         );
 
         _lzSend(
@@ -285,19 +329,134 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
             payable(msg.sender) 
         );
         // Increment the nonce
-        withdrawalNonces[nftId]++;
+        withdrawalNonces[tokenId]++;
 
-        emit CrossChainWithdrawalInitiated(nftId, token, amount, targetChainId);
+        emit CrossChainWithdrawalInitiated(tokenId, token, amount, targetChainId);
+    }
+
+    function createAssemblePositions(uint256 nftId, bool forWithdrawal, bytes[] calldata priceUpdate) external returns (uint256) {
+        require(forWithdrawal == false || isManagerOrOwner(nftId, msg.sender), "Not authorized for withdrawal");
+        
+        _currentAssembleId++;
+        uint256 assembleId = _currentAssembleId;
+
+        uint fee = pyth.getUpdateFee(priceUpdate);
+        pyth.updatePriceFeeds{ value: fee }(priceUpdate);
+     
+        bytes32 priceFeedIdETH = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace; // ETH/USD
+        bytes32 priceFeedIdwstETH = 0x6df640f3b8963d8f8358f791f352b8364513f6ab1cca5ed3f1f7b5448980e784; // wstETH/USD
+        PythStructs.Price memory ETHPrice = pyth.getPrice(priceFeedIdETH);
+        PythStructs.Price memory wstETHPrice = pyth.getPrice(priceFeedIdwstETH);    
+    
+        AssemblePositions storage newAssemble = _assemblePositions[assembleId];
+        newAssemble.nftId = nftId;
+        newAssemble.forWithdrawal = forWithdrawal;
+        newAssemble.timestamp = block.timestamp;
+
+        emit AssemblePositionsCreated(assembleId, nftId, forWithdrawal);
+
+        return assembleId;
     }
 
     function _lzReceive(
-        Origin calldata _origin, // struct containing info about the message sender
-        bytes32 _guid, // global packet identifier
-        bytes calldata payload, // encoded message payload being received
-        address _executor, // the Executor address.
-        bytes calldata _extraData // arbitrary data appended by the Executor
-        ) internal override {
-            data = abi.decode(payload, (string)); // your logic here
+        Origin calldata _origin,
+        bytes32 _guid,
+        bytes calldata _payload,
+        address _executor,
+        bytes calldata _extraData
+    ) internal override {
+        uint32 srcChainId = _origin.srcEid;
+        uint256 assembleId = _setupAssemble(srcChainId, _payload);
+
+        emit ChainPositionReported(assembleId, srcChainId);
+    }
+
+    function _setupAssemble(uint32 srcChainId, bytes calldata _payload) internal returns (uint256) {
+        (AssembleData memory assembleData, WalletData memory walletData) = _decodeAssemblePayload(_payload);
+    
+        AssemblePositions storage assemble = _assemblePositions[assembleData.assembleId];
+        
+        require(assemble.nftId == assembleData.nftId, "Invalid NFT ID");
+        require(!assemble.chainReported[srcChainId], "Chain already reported");
+    
+        assemble.chainReported[srcChainId] = true;
+        assemble.depositPositions[srcChainId] = assembleData.depositAmount;
+        assemble.wstETHDepositPositions[srcChainId] = assembleData.wstETHDepositAmount;
+        assemble.wethAddresses[srcChainId] = assembleData.wethAddress;
+        assemble.wstETHAddresses[srcChainId] = assembleData.wstETHAddress;
+        
+        for (uint256 i = 0; i < walletData.wallets.length; i++) {
+            uint256 approvedLimit = _accounts[assembleData.nftId].walletChainLimits[walletData.wallets[i]][srcChainId];
+            uint256 validBorrowAmount = approvedLimit == 0 ? 0 : (walletData.borrowAmounts[i] > approvedLimit ? approvedLimit + walletData.interestAmounts[i] : walletData.borrowAmounts[i] + walletData.interestAmounts[i]);
+            assemble.borrowPositions[walletData.wallets[i]][srcChainId] = validBorrowAmount;
+        }
+
+        return assembleData.assembleId;
+    }
+    
+    function _decodeAssemblePayload(bytes calldata _payload) private pure returns (AssembleData memory, WalletData memory) {
+        (
+            uint256 assembleId,
+            uint256 nftId,
+            uint256 depositAmount,
+            uint256 wstETHDepositAmount,
+            address wethAddress,
+            address wstETHAddress,
+            address[] memory wallets,
+            uint256[] memory borrowAmounts,
+            uint256[] memory interestAmounts
+        ) = abi.decode(_payload, (uint256, uint256, uint256, uint256, address, address, address[], uint256[], uint256[]));
+    
+        return (
+            AssembleData(assembleId, nftId, depositAmount, wstETHDepositAmount, wethAddress, wstETHAddress),
+            WalletData(wallets, borrowAmounts, interestAmounts)
+        );
+    }
+    
+    function forcedWithdrawal(uint256 assembleId, address token, uint256[] memory amounts, uint32[] memory targetChainIds, bytes calldata _extraOptions) external {
+        // @attackvector Can a malicious actor mess around with the token addresses and screw the protocol over? 
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        require(!assemble.isComplete, "Assemble already completed");
+        require(assemble.forWithdrawal, "Not a withdrawal assemble");
+        require(isManagerOrOwner(assemble.nftId, msg.sender), "Not authorized");
+
+        // Verify all chains have reported TODO
+        // _checkForUnaccountedWallets(uint256 assembleId);
+
+        // Calculate total borrow and deposit positions
+        (uint256 totalBorrowed, uint256 totalCollateral) = _calculateTotalPositions(assembleId);
+
+        // Calculate total available to withdraw
+        uint256 maxBorrow = totalCollateral * LTV_RATIO / 100;
+        assemble.totalAvailableToWithdraw = maxBorrow > totalBorrowed ? maxBorrow - totalBorrowed : 0;
+        // Execute withdrawals
+        for (uint256 i = 0; i < amounts.length; i++) {
+            // uint256 oracleMultiplier = token == assemble.wethAddresses[targetChainIds[i]] ? TODO
+            require(assemble.totalAvailableToWithdraw >= amounts[i], "Insufficient funds to withdraw");
+            assemble.totalAvailableToWithdraw -= amounts[i];
+
+            _executeWithdrawal(msg.sender, token, assemble.nftId, amounts[i], targetChainIds[i], _extraOptions);
+
+            emit ForcedWithdrawalExecuted(assembleId, token, amounts[i], targetChainIds[i]);
+        }
+
+        if (assemble.totalAvailableToWithdraw == 0) {
+            assemble.isComplete = true;
+        }
+    }
+
+    function _calculateTotalPositions(uint256 assembleId) internal view returns (uint256 totalBorrowed, uint256 totalDeposited) {
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        Account storage account = _accounts[assemble.nftId];
+
+        for (uint256 j = 0; j < chainList.length; j++) {
+            totalDeposited += assemble.depositPositions[chainList[j]];
+            totalDeposited += assemble.wstETHDepositPositions[chainList[j]] * WSTETH_ETH_RATIO / 1e18;
+            for (uint256 i = 0; i < account.walletList.length; i++) {
+                address wallet = account.walletList[i];
+                totalBorrowed += assemble.borrowPositions[wallet][chainList[j]];            
+            }
+        }
     }
 
         /**
@@ -306,7 +465,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
      * @param _msgType The type of message being sent.
      * @param user Input needed to calculate the message payload.
      * @param token Input needed to calculate the message payload.
-     * @param nftId Input needed to calculate the message payload.
+     * @param tokenId Input needed to calculate the message payload.
      * @param amount Input needed to calculate the message payload.
      * @param _extraOptions Gas options for sending the call (A -> B).
      * @param _payInLzToken Boolean flag indicating whether to pay in LZ token.
@@ -317,7 +476,7 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         uint16 _msgType,
         address user,
         address token, 
-        uint256 nftId, 
+        uint256 tokenId, 
         uint256 amount,
         bytes calldata _extraOptions,
         bool _payInLzToken
@@ -325,14 +484,13 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         bytes memory payload = abi.encode(
             user,
             token,
-            nftId,
+            tokenId,
             amount,
-            withdrawalNonces[nftId]
+            withdrawalNonces[tokenId]
         );
 
         fee = _quote(targetChainId, payload, _extraOptions, _payInLzToken);
     }
-
 
     function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
@@ -342,8 +500,43 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         depositContracts[chainId] = IDepositContract(contractAddress);
     }
 
+    function setExtraLimit(uint256 tokenId, uint256 extraLimit) external onlyIssuer {
+        _accounts[tokenId].extraLimit = extraLimit;
+    }
+
+    function setAutogasForWallet(uint256 tokenId, address wallet, bool autogas) external {
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        require(isWalletAdded(tokenId, wallet), "Wallet not added");
+        _accounts[tokenId].autogas[wallet] = autogas;
+    }
+
+    function markAssembleComplete(uint256 assembleId, uint256 tokenId) external {
+        require(isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        require(assemble.nftId == tokenId, "Assemble doesn't belong to the caller");
+        assemble.isComplete = true;
+    }
+
     function getManagers(uint256 tokenId) external view returns (address[] memory) {
         return _accounts[tokenId].managers;
+    }
+
+    function getAutogasConfig(uint256 tokenId, address wallet) external view returns (bool) {
+        return _accounts[tokenId].autogas[wallet];
+    }
+
+    function getExtraLimit(uint256 tokenId) external view returns (uint256) {
+        return _accounts[tokenId].extraLimit;
+    }
+
+    function getChainsWithLimit(uint256 tokenId) external view returns (uint256[] memory chainsWithLImit) {
+        for (uint256 i = 0; i < chainList.length; i++) {
+            for (uint256 j = 0; j < _accounts[tokenId].walletList.length; j++) {
+                if (_getWalletChainLimit(tokenId, _accounts[tokenId].walletList[j], chainList[i]) > 0) {
+                    // asdf
+                }
+            }
+        }
     }
 
     function _update(address to, uint256 tokenId, address auth) internal override(ERC721, ERC721Enumerable) returns (address) {
@@ -354,13 +547,13 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
         super._increaseBalance(account, value);
     }
 
-    function getWithdrawNonce(uint256 nftId) external view returns (uint256) {
-        return withdrawalNonces[nftId];
+    function getWithdrawNonce(uint256 tokenId) external view returns (uint256) {
+        return withdrawalNonces[tokenId];
     }
 
     function getWallets(uint256 tokenId) external view returns (address[] memory) {
         return _accounts[tokenId].walletList;
-    }
+    }       
 
     function isWalletAdded(uint256 tokenId, address wallet) public view returns (bool) {
         address[] memory wallets = _accounts[tokenId].walletList;
@@ -373,6 +566,10 @@ contract CrossChainLendingAccount is ERC721, ERC721Enumerable, Ownable, OApp, OA
     }
 
     function getWalletChainLimit(uint256 tokenId, address wallet, uint256 chainId) external view returns (uint256) {
+        return _getWalletChainLimit(tokenId, wallet, chainId);
+    }
+
+    function _getWalletChainLimit(uint256 tokenId, address wallet, uint256 chainId) internal view returns (uint256) {
         return _accounts[tokenId].walletChainLimits[wallet][chainId];
     }
 
