@@ -102,19 +102,19 @@ contract DepositTest is TestHelperOz5 {
         );
 
         depositLocal = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(issuer), address(this))))
         );
 
         depositCrossB = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(issuer), address(this))))
         );
 
         depositCrossC = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(issuer), address(this))))
         );
 
         depositCrossD = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(issuer), address(this))))
         );
 
 
@@ -128,6 +128,9 @@ contract DepositTest is TestHelperOz5 {
         this.wireOApps(oapps);
         oapps[1] = address(depositCrossD);
         this.wireOApps(oapps);
+
+        console.log(address(0));
+        console.logBytes32(addressToBytes32(0xF4D2D99b401859c7b825D145Ca76125455154245));
 
         vm.startPrank(issuer);
         
@@ -149,12 +152,12 @@ contract DepositTest is TestHelperOz5 {
         nftContract.approveChain(bEid); // Adding a supported chain
         nftContract.approveChain(cEid); // Adding a supported chain
         nftContract.approveChain(dEid); // Adding a supported chain
-        vm.stopPrank();
 
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCrossB)); // Adding the deposit contract on a diff chain
         accountOps.setDepositContract(cEid, address(depositCrossC)); // Adding the deposit contract on a diff chain
         accountOps.setDepositContract(dEid, address(depositCrossD)); // Adding the deposit contract on a diff chain
+        vm.stopPrank();
 
         assertEq(accountOps.adminChainId(), aEid);
 
@@ -187,13 +190,19 @@ contract DepositTest is TestHelperOz5 {
         amounts[1] = 3 * 10**18;
         amounts[2] = 0.2 * 10**18;
         amounts[3] = 0 * 10**18;
+
+        bool[] memory autogas = new bool[](4);
+        autogas[0] = true;
+        autogas[1] = false;
+        autogas[2] = true;
+        autogas[3] = true;
         
-        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, true);
+        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, autogas);
         amounts[0] = 0 * 10**18;
         amounts[1] = 3 * 10**18;
         amounts[2] = 10 * 10**18;
         amounts[3] = 0.3 * 10**18;
-        nftContract.setHigherBulkLimits(tokenId, address(user2), chainIds, amounts, true);
+        nftContract.setHigherBulkLimits(tokenId, address(user2), chainIds, amounts, autogas);
 
         console.log("Amoutn deposited, limits set");
         vm.stopPrank();
@@ -266,6 +275,9 @@ contract DepositTest is TestHelperOz5 {
 
         address[] memory walletsReqChain = nftContract.getWalletsWithLimitChain(tokenId, bEid);
         bytes memory payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
+        console.logBytes(new bytes(0));
+        console.logBytes(payload);
+        console.logBytes(extraOptions);
 
         // FIRST report
         MessagingFee memory sendFee = depositCrossB.quote(aEid, SEND, payload, extraOptions, false);

@@ -11,5 +11,6 @@ ignored_error_codes = ["unused-param"]
 optimism = "${RPC_MAINNET}"
 mainnet = "${RPC_MAINNET}"
 optimism_sepolia = "https://optimism-sepolia.blockpi.network/v1/rpc/public"
+base_sepolia = "https://sepolia.base.org"
 mainnet_sepolia = "https://eth-sepolia.public.blastapi.io"
-arbitrum_sepolia = "https://public.stackup.sh/api/v1/node/arbitrum-sepolia" 
+arbitrum_sepolia = "https://public.stackup.sh/api/v1/node/arbitrum-sepolia"

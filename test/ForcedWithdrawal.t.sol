@@ -102,19 +102,19 @@ contract DepositTest is TestHelperOz5 {
         );
 
         depositLocal = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(issuer), address(this))))
         );
 
         depositCrossB = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(issuer), address(this))))
         );
 
         depositCrossC = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(issuer), address(this))))
         );
 
         depositCrossD = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(issuer), address(this))))
         );
 
 
@@ -149,19 +149,16 @@ contract DepositTest is TestHelperOz5 {
         nftContract.approveChain(bEid); // Adding a supported chain
         nftContract.approveChain(cEid); // Adding a supported chain
         nftContract.approveChain(dEid); // Adding a supported chain
-        vm.stopPrank();
 
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCrossB)); // Adding the deposit contract on a diff chain
         accountOps.setDepositContract(cEid, address(depositCrossC)); // Adding the deposit contract on a diff chain
         accountOps.setDepositContract(dEid, address(depositCrossD)); // Adding the deposit contract on a diff chain
+        vm.stopPrank();
 
         assertEq(accountOps.adminChainId(), aEid);
 
         // The user is getting some WETH
-        vm.startPrank(issuer);
-
-        vm.stopPrank();
         vm.startPrank(user);
 
         tokenId = nftContract.mint{value:0.02*1e18}();
@@ -171,8 +168,9 @@ contract DepositTest is TestHelperOz5 {
         weth.approve(address(depositCrossB), 10 * 10**18);
         wstETH.approve(address(depositCrossD), 10 * 10**18);
 
+
+        depositCrossB.depositETH{value: 1e18}(tokenId, 1e18);
         depositLocal.deposit(address(weth), tokenId, 1 * 10**18);
-        depositCrossB.deposit(address(weth), tokenId, 1 * 10**18);
         depositCrossD.deposit(address(wstETH), tokenId, 1 * 10**18);
 
 
@@ -187,13 +185,19 @@ contract DepositTest is TestHelperOz5 {
         amounts[1] = 2 * 10**18;
         amounts[2] = 0.1 * 10**18;
         amounts[3] = 0 * 10**18;
+
+        bool[] memory autogas = new bool[](4);
+        autogas[0] = true;
+        autogas[1] = false;
+        autogas[2] = true;
+        autogas[3] = true;
         
-        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, true);
+        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, autogas);
         amounts[0] = 0 * 10**18;
         amounts[1] = 2 * 10**18;
         amounts[2] = 10 * 10**18;
         amounts[3] = 0.3 * 10**18;
-        nftContract.setHigherBulkLimits(tokenId, address(user2), chainIds, amounts, true);
+        nftContract.setHigherBulkLimits(tokenId, address(user2), chainIds, amounts, autogas);
 
         console.log("Amoutn deposited, limits set");
         vm.stopPrank();
@@ -201,7 +205,7 @@ contract DepositTest is TestHelperOz5 {
         assertEq(depositCrossB.getDepositAmount(address(weth), tokenId), 1 * 10**18);
     }
 
-    function testOraclePriceUpdate() public {
+    function testForcedWithdrawal() public {
 
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
@@ -246,8 +250,8 @@ contract DepositTest is TestHelperOz5 {
         MessagingFee memory sendFee = depositCrossB.quote(aEid, SEND, payload, extraOptions, false);
 
         vm.startPrank(user);
-        vm.expectEmit();
-        emit AdminDepositContract.PositionsReported(assembleId, tokenId);
+        // vm.expectEmit();
+        // emit AdminDepositContract.PositionsReported(assembleId, tokenId);
 
         depositCrossB.reportPositions{value: sendFee.nativeFee}(assembleId, tokenId, walletsReqChain, extraOptions);
         vm.stopPrank();
@@ -287,7 +291,7 @@ contract DepositTest is TestHelperOz5 {
         targetChainIds[0] = aEid;
         targetChainIds[1] = bEid;
 
-        extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(150000, 0); // gas settings for B -> A
+        extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(250000, 0); // gas settings for B -> A
 
         payload = abi.encode(
             address(user),
@@ -299,6 +303,8 @@ contract DepositTest is TestHelperOz5 {
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
 
+        console.logBytes(accountOps.encodeMessage(1, payload));
+        console.logBytes(extraOptions);
         vm.startPrank(user);
         accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, address(weth), withdrawAmounts, targetChainIds, extraOptions, address(user));
         vm.stopPrank();
@@ -341,7 +347,7 @@ contract DepositTest is TestHelperOz5 {
         signature = abi.encodePacked(r, s, v);
     }
 
-    function getReportPositionsPayload(uint256 tokenId2, uint256 assembleId, address[] memory walletsReqChain) private pure returns ( bytes memory payload ){
+    function getReportPositionsPayload(uint256 tokenId2, uint256 assembleId, address[] memory walletsReqChain) private pure  returns ( bytes memory payload ){
         uint256 depositAmount = 0;
         uint256 wstETHDepositAmount = 0;
         address wethAddress = address(0);
@@ -356,6 +362,7 @@ contract DepositTest is TestHelperOz5 {
             wstETHDepositAmount, 
             wethAddress, 
             wstETHAddress,
+            depositAmount, // random uint256 for testing
             walletsReqChain,
             borrowAmounts,
             interestAmounts

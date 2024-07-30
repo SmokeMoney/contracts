@@ -14,17 +14,22 @@ interface IBorrowContract {
     function getBorrowPositionSeparate(uint256 nftId, address wallet) external view returns (uint256, uint256, uint256);
 }
 
+interface IWETH2 {
+    function deposit() external payable;
+    function withdraw(uint256 wad) external;
+}
 
 contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
 
-    address public immutable issuer;
+    address public issuer;
     address public immutable accOpsContractAddress;
     address public immutable wethAddress;
     address public immutable wstETHAddress;
     uint32 public immutable nftContractChainId;
     uint32 public immutable chainId;
+    IWETH2 public immutable WETH;
 
     IBorrowContract public immutable borrowContract;
     mapping(address => bool) public supportedTokens;
@@ -53,7 +58,7 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
     event PositionsReported(uint256 indexed assembleId, uint256 indexed nftId);
 
 
-    constructor(address _issuer, address _accOpsContract, address _borrowContract, address _wethAddress, address _wstETHAddress, uint32 _nftContractChainId, uint32 _chainId, address _endpoint, address _owner) OApp(_endpoint, _owner) Ownable(_owner){
+    constructor(address _accOpsContract, address _borrowContract, address _wethAddress, address _wstETHAddress, uint32 _nftContractChainId, uint32 _chainId, address _endpoint, address _issuer, address _owner) OApp(_endpoint, _owner) Ownable(_owner){
         issuer = _issuer;
         accOpsContractAddress = _accOpsContract;
         borrowContract = IBorrowContract(_borrowContract);
@@ -61,6 +66,7 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         wstETHAddress = _wstETHAddress;
         nftContractChainId = _nftContractChainId;
         chainId = _chainId;
+        WETH = IWETH2(_wethAddress);
     }
 
     modifier onlyIssuer() {
@@ -90,6 +96,17 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         deposits[token][nftId] += amount;
 
         emit Deposited(msg.sender, token, nftId, amount);
+    }
+
+    function depositETH(uint256 nftId, uint256 amount) external payable nonReentrant {
+        require(amount > 0, "Amount must be greater than 0");
+        require(amount == msg.value, "Amount must be equal to msg.value");
+        require(!liquidationLocks[wethAddress][nftId], "Account is locked for liquidation");
+
+        WETH.deposit{value: amount}();
+        deposits[wethAddress][nftId] += amount;
+
+        emit Deposited(msg.sender, wethAddress, nftId, amount);
     }
 
     function executeWithdrawal(address recipientAddress, address token, uint256 nftId, uint256 amount) external nonReentrant {
@@ -287,6 +304,10 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
             IERC20(token).safeTransfer(recipient, issuerLockAmount);
             emit LiquidationChallenged(token, nftId, recipient);
         }
+    }
+
+    function setNewIssuer(address newIssuer) external onlyIssuer {
+        issuer = newIssuer;
     }
 
     function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {

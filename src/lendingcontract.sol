@@ -6,12 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IWETH {
     function deposit() external payable;
     function withdraw(uint256 wad) external;
-    function transfer(address to, uint256 value) external returns (bool);
-    function transferFrom(address src, address dst, uint256 wad) external returns (bool);
 }
 
 contract CrossChainLendingContract is ReentrancyGuard, Ownable {
@@ -27,9 +26,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         uint256 rate;
     }
     
-    
-    
-    address public immutable issuer;
+    address public issuer;
     IWETH public immutable WETH;
     
     InterestRateChange[] public interestRateHistory;
@@ -42,6 +39,8 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     uint256 public scheduleInterestRateTimestamp;
     uint256 public constant RATE_CHANGE_DELAY = 15 days;
     uint256 public constant SECONDS_PER_YEAR = 31536000;
+    uint256 public borrowFees;
+    address public feeRecipient;
     uint256 public autogasThreshold;
     uint256 public autogasRefillAmount; // Fixed amount for autogas refill
     uint256 public repaymentThreshold; // Threshold for considering a debt fully repaid
@@ -51,17 +50,23 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
 
     event Borrowed(uint256 indexed nftId, address indexed wallet, uint256 amount);
     event BorrowedAndSent(uint256 indexed nftId, address indexed wallet, uint256 amount, address recipient);
+    event Repaid(uint256 indexed nftId, address indexed wallet, uint256 amount);
+
     event AutogasTriggered(uint256 indexed nftId, address indexed wallet, uint256 amount);
     event AutogasSpikeTriggered(uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event Repaid(uint256 indexed nftId, address indexed wallet, uint256 amount);
+    
     event PoolDeposited(uint256 amount);
     event PoolWithdrawn(uint256 amount);
+
+    event BorrowFeesSet(uint256 newFees);
     event InterestRateChangeScheduled(uint256 oldRate, uint256 newRate, uint256 effectiveTimestamp);
     event InterestRateChanged(uint256 oldRate, uint256 newRate);
+    event GasPriceThresholdChanged(uint256 newThreshold);
 
 
     constructor(address _issuer, address _weth, uint256 _chainId) Ownable(msg.sender) {
         issuer = _issuer;
+        feeRecipient = _issuer;
         WETH = IWETH(_weth);
         borrowInterestRate = 1000; // 10% annual interest
         autogasThreshold = 1e15; // 0.001 ETH
@@ -137,12 +142,16 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
             borrowers[nftId].push(wallet);
         }
 
-        borrowPosition.amount += borrowInterest + amount;
+        borrowPosition.amount += borrowInterest + amount + borrowFees;
         borrowPosition.timestamp = block.timestamp;
 
-        WETH.withdraw(amount);
+        WETH.withdraw(amount+borrowFees);
         (bool success, ) = wallet.call{value: amount}("");
         require(success, "ETH transfer failed");
+        if (borrowFees>0) {
+            (success, ) = feeRecipient.call{value: borrowFees}("");
+            require(success, "ETH transfer failed");
+        }
 
         emit Borrowed(nftId, wallet, amount);
     }
@@ -156,12 +165,16 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
             borrowers[nftId].push(wallet);
         }
 
-        borrowPosition.amount += borrowInterest + amount;
+        borrowPosition.amount += borrowInterest + amount + borrowFees;
         borrowPosition.timestamp = block.timestamp;
 
-        WETH.withdraw(amount);
+        WETH.withdraw(amount+borrowFees);
         (bool success, ) = recipient.call{value: amount}("");
         require(success, "ETH transfer failed");
+        if (borrowFees>0) {
+            (success, ) = feeRecipient.call{value: borrowFees}("");
+            require(success, "ETH transfer failed");
+        }
 
         emit BorrowedAndSent(nftId, wallet, amount, recipient);
     }
@@ -334,7 +347,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
 
-    function scheduleInterestRateChange(uint256 newRate) external onlyOwner {
+    function scheduleInterestRateChange(uint256 newRate) external onlyIssuer {
         require(newRate <= borrowInterestRate * 150 / 100, "can't be increased by more than 50%");
         uint256 oldRate = borrowInterestRate;
 
@@ -343,7 +356,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         emit InterestRateChangeScheduled(oldRate, newRate, block.timestamp + RATE_CHANGE_DELAY);
     }
 
-    function setInterestRate() external onlyOwner{
+    function setInterestRate() external onlyIssuer{
         require(scheduleInterestRate != 0, "No scheduled rate change");
         require(block.timestamp > scheduleInterestRateTimestamp + RATE_CHANGE_DELAY, "Delay period not yet passed");
         uint256 oldRate = borrowInterestRate;
@@ -354,15 +367,37 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         emit InterestRateChanged(oldRate, borrowInterestRate);
     }
 
-    function setAutogasThreshold(uint256 newThreshold) external onlyOwner {
+    function setAutogasThreshold(uint256 newThreshold) external onlyIssuer {
         autogasThreshold = newThreshold;
     }
 
-    function setAutogasRefillAmount(uint256 newAmount) external onlyOwner {
+    function setGaspriceThreshold(uint256 newThreshold) external onlyIssuer {
+        gasPriceThreshold = newThreshold;
+        emit GasPriceThresholdChanged(newThreshold);
+    }
+
+    function setAutogasRefillAmount(uint256 newAmount) external onlyIssuer {
         autogasRefillAmount = newAmount;
     }
 
-    function setRepaymentThreshold(uint256 newThreshold) external onlyOwner {
+    function setBorrowFees(uint256 newFees) external onlyIssuer {
+        borrowFees = newFees;
+        emit BorrowFeesSet(newFees);
+    }
+
+    function setBorrowFeeRecipient(address newRecipient) external onlyIssuer {
+        feeRecipient = newRecipient;
+    }
+
+    function setNewIssuer(address newIssuer) external onlyIssuer {
+        issuer = newIssuer;
+    }
+
+    function getBorrowFees(uint256 newFees) external view returns(uint256) {
+        return borrowFees;
+    }
+
+    function setRepaymentThreshold(uint256 newThreshold) external onlyIssuer {
         repaymentThreshold = newThreshold;
     }
 

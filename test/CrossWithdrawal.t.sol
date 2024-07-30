@@ -62,11 +62,11 @@ contract DepositTest is TestHelperOz5 {
         );
 
         depositLocal = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), address(issuer), address(this))))
         );
 
         depositCross = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(0), address(0), address(0), 1, bEid, address(endpoints[bEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(0), address(0), address(0), 1, bEid, address(endpoints[bEid]), address(issuer), address(this))))
         );
         
 
@@ -86,10 +86,10 @@ contract DepositTest is TestHelperOz5 {
 
         nftContract.approveChain(aEid); // Adding a supported chain
         nftContract.approveChain(bEid); // Adding a supported chain
-        vm.stopPrank();
-        
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCross)); // Adding the deposit contract on a diff chain
+        vm.stopPrank();
+        
 
 
         assertEq(accountOps.adminChainId(), aEid);
@@ -155,7 +155,7 @@ contract DepositTest is TestHelperOz5 {
             accountOps.getWithdrawNonce(tokenId)
         );
 
-        MessagingFee memory sendFee = accountOps.quote(bEid, SEND, payload, extraOptions, false);
+        MessagingFee memory sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
         vm.startPrank(user);
         accountOps.withdraw{value: sendFee.nativeFee}(address(weth), tokenId, 0.1 * 10**18, bEid, timestamp, 1, signature, extraOptions, address(user));
         vm.stopPrank();
@@ -179,7 +179,7 @@ contract DepositTest is TestHelperOz5 {
             accountOps.getWithdrawNonce(tokenId)
         );
 
-        sendFee = accountOps.quote(bEid, SEND, payload, extraOptions, false);
+        sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
         vm.startPrank(user);
         accountOps.withdraw{value: sendFee.nativeFee}(address(weth), tokenId, 0.1 * 10**18, bEid, timestamp, 2, signature, extraOptions, address(user));
         vm.stopPrank();

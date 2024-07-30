@@ -95,6 +95,11 @@ contract DepositTest is TestHelperOz5 {
         weth.deposit{value: 0.0095 * 10**18}();
         vm.stopPrank();
 
+        vm.startPrank(issuer);
+        lendingcontract.setBorrowFees(0.00001*1e18);
+        lendingcontract.setBorrowFeeRecipient(address(42));
+        vm.stopPrank();
+
     }
 
 
@@ -165,6 +170,7 @@ contract DepositTest is TestHelperOz5 {
         console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
         console.log("Total Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
 
+        console.log("After multi borrows        ", address(42).balance);
     }
 
     function testBorrow2() public {
@@ -274,7 +280,7 @@ contract DepositTest is TestHelperOz5 {
         lendingcontract.repayMultiple{value: totalBorrowed}(nftIds, walletAddresses, borrowAmounts, user3);
 
         vm.stopPrank();
-
+        console.log("After multirepayment", address(42).balance);
     }
 
     function testAutoGas() public {
@@ -298,5 +304,7 @@ contract DepositTest is TestHelperOz5 {
         vm.txGasPrice(2);
         lendingcontract.triggerAutogasSpike(tokenId, user2);
         vm.stopPrank();
+        vm.startPrank(issuer);
+        console.log("After autogas", address(42).balance);
     }
 }

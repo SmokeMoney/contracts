@@ -48,7 +48,7 @@
             accountOps = new OperationsContract(address(nftContract), address(endpoints[aEid]), address(0), issuer, issuer, 1);
             weth = new WETH();
             siggen = new SignatureGenerator();
-            deposit = new AdminDepositContract(issuer, address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), issuer);
+            deposit = new AdminDepositContract(address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), issuer, issuer);
             deposit.addSupportedToken(address(weth));
 
             nftContract.approveChain(aEid); // Adding a supported chain
@@ -70,7 +70,7 @@
         function testDeposit() public {
             // Mint an NFT for the user
             vm.startPrank(user);
-            uint256 tokenId = nftContract.mint();
+            uint256 tokenId = nftContract.mint{value:0.02*1e18}();
             deposit.deposit(address(weth), tokenId, 1 * 10**18);
             vm.stopPrank();
 
@@ -81,7 +81,7 @@
         function testWithdraw() public {
             // Mint an NFT for the user
             vm.startPrank(user);
-            uint256 tokenId = nftContract.mint();
+            uint256 tokenId = nftContract.mint{value:0.02*1e18}();
             deposit.deposit(address(weth), tokenId, 1 * 10**18);
             vm.stopPrank();
 

@@ -61,11 +61,11 @@ contract DepositTest is TestHelperOz5 {
         );
 
         depositLocal = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), address(issuer), address(this))))
         );
 
         depositCross = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(issuer), address(accountOps), address(0), address(0), address(0), 1, bEid, address(endpoints[bEid]), address(this))))
+            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(0), address(0), address(0), 1, bEid, address(endpoints[bEid]), address(issuer), address(this))))
         );
         
         address[] memory oapps = new address[](2);
@@ -85,9 +85,9 @@ contract DepositTest is TestHelperOz5 {
         nftContract.approveChain(bEid); // Adding a supported chain
         nftContract.approveChain(cEid); // Adding a supported chain
         nftContract.approveChain(dEid); // Adding a supported chain
-        vm.stopPrank();
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCross)); // Adding the deposit contract on a diff chain
+        vm.stopPrank();
 
         assertEq(accountOps.adminChainId(), aEid);
 
@@ -117,13 +117,21 @@ contract DepositTest is TestHelperOz5 {
         amounts[0] = 1.1 * 10**18;
         amounts[1] = 2 * 10**18;
         amounts[2] = 0.1 * 10**18;
+
+        bool[] memory autogas = new bool[](3);
+        autogas[0] = true;
+        autogas[1] = false;
+        autogas[2] = true;
         
-        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, true);
+        nftContract.setHigherBulkLimits(tokenId, address(user), chainIds, amounts, autogas);
         vm.stopPrank();
         console.log("set higher limits");
         console.log(nftContract.getWalletChainLimit(tokenId, address(user), aEid));
         console.log(nftContract.getWalletChainLimit(tokenId, address(user), bEid));
         console.log(nftContract.getWalletChainLimit(tokenId, address(user), cEid));
+
+        autogas = nftContract.getAutogasConfig(tokenId, user);
+        assertEq(autogas[1], false);
 
         amounts[0] = 0.42 * 10**18;
         amounts[1] = 0.69 * 10**18;
@@ -193,8 +201,27 @@ contract DepositTest is TestHelperOz5 {
 
     }
 
-    function testManagerPowers() public {
-
+    function testMaxMint() public {
+        vm.startPrank(userB);
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        vm.expectRevert();
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        vm.stopPrank();
+        vm.prank(issuer);
+        nftContract.setMaxNFTs(11);
+        vm.startPrank(userB);
+        tokenId = nftContract.mint{value:0.02*1e18}();
+        vm.stopPrank();
+        assertEq(tokenId,12);
     }
 
     function testMinting() public {
@@ -207,6 +234,7 @@ contract DepositTest is TestHelperOz5 {
         vm.startPrank(userB);
         tokenId = nftContract.mint{value:0.02*1e18}();
         vm.stopPrank();
+        vm.prank(issuer);
         nftContract.withdrawFunds();
     }
 

@@ -11,18 +11,18 @@ import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 
 interface ICoreNFTContract {
-    function ownerOf(uint256 tokenId) external view returns (address);
-    function isManagerOrOwner(uint256 tokenId, address addr) external view returns (bool);
-    function isWalletAdded(uint256 tokenId, address wallet) external view returns (bool);
-    function getWallets(uint256 tokenId) external view returns (address[] memory);
-    function getWalletChainLimit(uint256 tokenId, address wallet, uint256 chainId) external view returns (uint256);
-    function getWalletsWithLimitChain(uint256 tokenId, uint256 chainId) external view returns (address[] memory);
-    function getExtraLimit(uint256 tokenId) external view returns (uint256);
+    function ownerOf(uint256 nftId) external view returns (address);
+    function isManagerOrOwner(uint256 nftId, address addr) external view returns (bool);
+    function isWalletAdded(uint256 nftId, address wallet) external view returns (bool);
+    function getWallets(uint256 nftId) external view returns (address[] memory);
+    function getWalletChainLimit(uint256 nftId, address wallet, uint256 chainId) external view returns (uint256);
+    function getWalletsWithLimitChain(uint256 nftId, uint256 chainId) external view returns (address[] memory);
+    function getExtraLimit(uint256 nftId) external view returns (uint256);
     function getChainList() external view returns (uint256[] memory);
 }
 
 interface IDepositContract {
-    function executeWithdrawal(address user, address token, uint256 tokenId, uint256 amount) external;
+    function executeWithdrawal(address user, address token, uint256 nftId, uint256 amount) external;
     function reportPositions(uint256 assembleId, uint256 nftId, address[] memory wallets, bytes calldata _extraOptions) external payable returns (bytes memory);
     function onChainLiqChallenge(address token, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipient) external;
 }
@@ -82,8 +82,8 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
     event ChainPositionReported(uint256 indexed assembleId, uint256 chainId);
     event ForcedWithdrawalExecuted(uint256 indexed assembleId, address indexed token, uint256 amount, uint32 targetChainId, address recipientAddress);
     event AssemblePositionsCreated(uint256 indexed assembleId, uint256 indexed nftId, bool forWithdrawal);
-    event CrossChainWithdrawalInitiated(uint256 indexed tokenId, address indexed token, uint256 amount, uint32 targetChainId, address recipientAddress);
-    event Withdrawn(uint256 indexed tokenId, address indexed token, uint256 amount, uint32 targetChainId);
+    event CrossChainWithdrawalInitiated(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId, address recipientAddress);
+    event Withdrawn(uint256 indexed nftId, address indexed token, uint256 amount, uint32 targetChainId);
     event LiquidationChallenged(address indexed token, uint256 indexed nftId, uint32 targetChainId, address challenger);
 
     constructor(address _coreNFTContract, address _endpoint, address _pythContract, address _issuer, address _owner, uint32 _adminChainId) 
@@ -97,10 +97,14 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         _currentAssembleId = 1;
     }
 
+    modifier onlyIssuer() {
+        require(msg.sender == issuer, "Not the issuer");
+        _;
+    }
 
     function withdraw(
         address token,
-        uint256 tokenId,
+        uint256 nftId,
         uint256 amount,
         uint32 targetChainId,
         uint256 timestamp,
@@ -109,41 +113,41 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         bytes calldata _extraOptions, 
         address recipientAddress
     ) external payable {
-        require(coreNFTContract.isManagerOrOwner(tokenId, msg.sender), "Not authorized");
+        require(coreNFTContract.isManagerOrOwner(nftId, msg.sender), "Not authorized");
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
-        if (withdrawalNonces[tokenId]==0) {
-            withdrawalNonces[tokenId] = 1; //it always starts with 1
+        if (withdrawalNonces[nftId]==0) {
+            withdrawalNonces[nftId] = 1; //it always starts with 1
         }
-        require(nonce == withdrawalNonces[tokenId], "Invalid withdraw nonce");
+        require(nonce == withdrawalNonces[nftId], "Invalid withdraw nonce");
 
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, token, tokenId, amount, targetChainId, timestamp, nonce));
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, token, nftId, amount, targetChainId, timestamp, nonce));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         require(ethSignedMessageHash.recover(signature) == issuer, "Invalid withdraw signature");
 
-        _executeWithdrawal(recipientAddress, token, tokenId, amount, targetChainId, _extraOptions);
+        _executeWithdrawal(recipientAddress, token, nftId, amount, targetChainId, _extraOptions);
     }
 
-    function _executeWithdrawal(address recipientAddress, address token, uint256 tokenId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
+    function _executeWithdrawal(address recipientAddress, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];
             require(address(depositContract) != address(0), "Deposit contract not set for this chain");
-            depositContract.executeWithdrawal(recipientAddress, token, tokenId, amount);
-            emit Withdrawn(tokenId, token, amount, targetChainId);
-            withdrawalNonces[tokenId]++;
+            depositContract.executeWithdrawal(recipientAddress, token, nftId, amount);
+            emit Withdrawn(nftId, token, amount, targetChainId);
+            withdrawalNonces[nftId]++;
         } else {
-            _initiateCrossChainWithdrawal(recipientAddress, token, tokenId, amount, targetChainId, _extraOptions);
+            _initiateCrossChainWithdrawal(recipientAddress, token, nftId, amount, targetChainId, _extraOptions);
         }
     }
 
-    function _initiateCrossChainWithdrawal(address recipientAddress, address token, uint256 tokenId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
+    function _initiateCrossChainWithdrawal(address recipientAddress, address token, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
         
         // Prepare the payload for the cross-chain message
         bytes memory payload = abi.encode(
             recipientAddress,
             token,
-            tokenId,
+            nftId,
             amount,
-            withdrawalNonces[tokenId]
+            withdrawalNonces[nftId]
         );
 
         _lzSend(
@@ -157,9 +161,9 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
             payable(msg.sender)
         );
         // Increment the nonce
-        withdrawalNonces[tokenId]++;
+        withdrawalNonces[nftId]++;
 
-        emit CrossChainWithdrawalInitiated(tokenId, token, amount, targetChainId, recipientAddress);
+        emit CrossChainWithdrawalInitiated(nftId, token, amount, targetChainId, recipientAddress);
     }
 
     function encodeMessage(uint8 _msgType, bytes memory _payload) public pure returns (bytes memory) {
@@ -394,16 +398,16 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
 
     }
 
-    function _initiateCrossChainChallenge(address token, uint256 tokenId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipientAddress, uint32 targetChainId, bytes calldata _extraOptions) internal {
+    function _initiateCrossChainChallenge(address token, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipientAddress, uint32 targetChainId, bytes calldata _extraOptions) internal {
         
         // Prepare the payload for the cross-chain message
         bytes memory payload = abi.encode(
             recipientAddress,
             token,
-            tokenId,
+            nftId,
             assembleTimestamp,
             latestBorrowTimestamp,
-            challengeNonces[tokenId]
+            challengeNonces[nftId]
         );
 
         _lzSend(
@@ -417,15 +421,15 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
             payable(msg.sender)
         );
         // Increment the nonce
-        challengeNonces[tokenId]++;
+        challengeNonces[nftId]++;
     }
 
     function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
 
-    function getWithdrawNonce(uint256 tokenId) external view returns (uint256) {
-        return withdrawalNonces[tokenId];
+    function getWithdrawNonce(uint256 nftId) external view returns (uint256) {
+        return withdrawalNonces[nftId];
     }
 
     function getAssembleChainsReported(uint256 assembleId) external view returns (uint256) {
@@ -441,8 +445,13 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         return reportedChains;
     }
 
-    function setDepositContract(uint256 chainId, address contractAddress) external onlyOwner {
+    function setDepositContract(uint256 chainId, address contractAddress) external onlyIssuer {
+        require(address(depositContracts[chainId]) == address(0), "Deposit contract already set for this chain");
         depositContracts[chainId] = IDepositContract(contractAddress);
+    }
+
+    function setNewIssuer(address newIssuer) external onlyIssuer {
+        issuer = newIssuer;
     }
 
     function hasIncompleteWithdrawalAssemble(uint256 nftId) public view returns (bool) {
