@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+// import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 contract CoreNFTContract is ERC721, ERC721Enumerable, Ownable {
     using ECDSA for bytes32;

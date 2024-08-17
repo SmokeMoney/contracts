@@ -14,12 +14,15 @@ contract SetupScript is Script {
     uint32 OPTEID = 40232;
     uint32 BASEID = 40245;
 
+    uint256 tokenId = 1;
+    address user = 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140;
+
     address nftContractAddress = 0x9C2e3e224F0f5BFaB7B3C454F0b4357d424EF030;
     address opsCotnractAddress = 0x981830D1946e6FC9D5F893327a2819Fd5E2C5819;
 
     address deposit_ARB_Address = 0x6D08b0aa7eeCb491c61190418df9235d1b53fcD8;
     address deposit_ETH_Address = 0x0cFbC9aaEF1fbCA9bbeF916aD4dABf0d6103451b;
-    address deposit_OPT_Address = 0xD76702b575bA815B2537F4f19Bc856B74536eC9B;
+    address deposit_OPT_Address = 0x6D08b0aa7eeCb491c61190418df9235d1b53fcD8;
     address deposit_BAS_Address = 0x85a5A8AfF78df7097907952A366C6F86F3d4Aa10;
     
     address payable lending_ARB_Address = payable(0x472Cf1b83213DeD59DB4Fc643532d07450d8f40B);
@@ -47,7 +50,7 @@ contract SetupScript is Script {
         AdminDepositContract depositARB = AdminDepositContract(deposit_ARB_Address);
         CrossChainLendingContract lendingARB = CrossChainLendingContract(lending_ARB_Address);
 
-        nftContract.setHigherLimit(tokenId, address(user), aEid, 1 * 10**18);
+        // nftContract.setHigherLimit(tokenId, address(user), ARBEID, 1 * 10**18);
 
         console.log(address(0));
 
@@ -55,6 +58,7 @@ contract SetupScript is Script {
         console.log(chainList.length);
         console.log(chainList[0]);
         console.logBytes32(accountOps.peers(ETHEID));
+        console.logBytes32(addressToBytes32(deposit_OPT_Address));
         vm.stopBroadcast();
     }
 

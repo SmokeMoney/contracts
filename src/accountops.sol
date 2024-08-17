@@ -7,7 +7,7 @@ import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contra
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
-import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+// import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 
 interface ICoreNFTContract {
@@ -318,7 +318,7 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         
         if (assemble.totalAvailableToWithdraw == 0){
 
-            console2.log("Max Borrow: %s | totalBorrowed: %s | totalCollateral: %s", maxBorrow, totalBorrowed, totalCollateral); // TODO remove after testing
+            // console2.log("Max Borrow: %s | totalBorrowed: %s | totalCollateral: %s", maxBorrow, totalBorrowed, totalCollateral); // TODO remove after testing
             assemble.totalAvailableToWithdraw = maxBorrow > totalBorrowed ? totalCollateral * (maxBorrow - totalBorrowed) / maxBorrow : 0; // denominated in ETH
         }
         
@@ -383,7 +383,7 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         
         require(totalBorrowed < liqThreshold, "Borrow position is above the liquidation threshold");
 
-        console2.log("Total borrowed: %s | Liq Threshold: %s", totalBorrowed, liqThreshold); // TODO remove after testing
+        // console2.log("Total borrowed: %s | Liq Threshold: %s", totalBorrowed, liqThreshold); // TODO remove after testing
 
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];

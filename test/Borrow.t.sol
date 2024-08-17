@@ -190,6 +190,32 @@ contract DepositTest is TestHelperOz5 {
         vm.stopPrank();
     }
 
+    function testBorrowGasless() public {
+        vm.warp(1720962281);
+        console.log(lendingcontract.getBorrowPosition(tokenId, user2));
+        uint256 timestamp = vm.getBlockTimestamp();
+        vm.startPrank(issuer);
+        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        bytes32 hash = siggen.getEthSignedMessageHash(digest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
+        bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        hash = siggen.getEthSignedMessageHash(digest);
+        ( v, r, s) = vm.sign(user2Pk, hash);
+        bytes memory usersignature = abi.encodePacked(r, s, v); // note the order here is different from line above.
+        vm.stopPrank();
+        
+        // Mint an NFT for the user
+        vm.startPrank(user);
+        lendingcontract.borrowWithSignature(tokenId, uint256(25 * 10**18), timestamp, uint256(1), user2, usersignature, signature);
+        vm.stopPrank();
+        console.log(lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log(address(user2));
+    }
+
 
     function testRepay() public {
         vm.startPrank(user3);

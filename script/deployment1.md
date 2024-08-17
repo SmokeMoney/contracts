@@ -95,3 +95,20 @@ forge script script/BaseSepoliaSetup.s.sol:SetupScript --chain-id 84532 --rpc-ur
 
     curl -X 'GET' \
     'https://hermes.pyth.network/v2/updates/price/latest?ids%5B%5D=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace&ids%5B%5D=0x6df640f3b8963d8f8358f791f352b8364513f6ab1cca5ed3f1f7b5448980e784'
+
+
+forge inspect src/lendingcontract.sol:CrossChainLendingContract abi > ../vite-react/src/abi/CrossChainLendingContract.abi.json
+forge inspect src/corenft.sol:CoreNFTContract abi > ../vite-react/src/abi/CoreNFTContract.abi.json
+forge inspect src/deposit.sol:AdminDepositContract abi > ../vite-react/src/abi/AdminDepositContract.abi.json
+forge inspect src/accountops.sol:OperationsContract abi > ../vite-react/src/abi/OperationsContract.abi.json
+
+forge inspect src/lendingcontract.sol:CrossChainLendingContract abi > ../cross-chain-lending-backend/src/abi/CrossChainLendingContract.abi.json
+forge inspect src/corenft.sol:CoreNFTContract abi > ../cross-chain-lending-backend/src/abi/CoreNFTContract.abi.json
+forge inspect src/deposit.sol:AdminDepositContract abi > ../cross-chain-lending-backend/src/abi/AdminDepositContract.abi.json
+forge inspect src/accountops.sol:OperationsContract abi > ../cross-chain-lending-backend/src/abi/OperationsContract.abi.json
+forge inspect lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol:ERC20 abi > ../cross-chain-lending-backend/src/abi/ERC20.abi.json
+
+
+# VERIFY CONTRACTS
+╰─λ cast abi-encode "constructor(address,address,uint256)" 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140 0xf531B8F309Be94191af87605CfBf600D71C2cFe0 40161
+╰─λ forge verify-contract --chain-id 11155111 0xE0649C73277Fb736455Ec3DFa6A446a2a864f831 src/lendingcontract.sol:CrossChainLendingContract --watch --constructor-args 0x00000000000000000000000003773f85756acac65a869e89e3b7b2fcda6be140000000000000000000000000f531b8f309be94191af87605cfbf600d71c2cfe00000000000000000000000000000000000000000000000000000000000009ce1

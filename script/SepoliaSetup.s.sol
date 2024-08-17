@@ -19,7 +19,7 @@ contract SetupScript is Script {
 
     address deposit_ARB_Address = 0x6D08b0aa7eeCb491c61190418df9235d1b53fcD8;
     address deposit_ETH_Address = 0x0cFbC9aaEF1fbCA9bbeF916aD4dABf0d6103451b;
-    address deposit_OPT_Address = 0xD76702b575bA815B2537F4f19Bc856B74536eC9B;
+    address deposit_OPT_Address = 0x6D08b0aa7eeCb491c61190418df9235d1b53fcD8;
     address deposit_BAS_Address = 0x85a5A8AfF78df7097907952A366C6F86F3d4Aa10;
     
     address payable lending_ARB_Address = payable(0x472Cf1b83213DeD59DB4Fc643532d07450d8f40B);

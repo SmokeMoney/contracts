@@ -125,6 +125,8 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         address signer = ethSignedMessageHash.recover(userSignature);
         require(ethSignedMessageHash.recover(issuerSignature) == issuer, "Invalid signature");
 
+        console2.log('recovered signer', signer);
+
         uint256 gasStart = gasleft();
         _executeBorrowAndSend(nftId, signer, amount, recipient);
         uint256 gasUsed = gasStart - gasleft();
@@ -393,7 +395,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         issuer = newIssuer;
     }
 
-    function getBorrowFees(uint256 newFees) external view returns(uint256) {
+    function getBorrowFees() external view returns(uint256) {
         return borrowFees;
     }
 
