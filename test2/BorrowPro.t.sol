@@ -4,9 +4,9 @@ pragma solidity ^0.8.13;
 import "forge-std/Test.sol";
 import "forge-std/console.sol"; // Import console for logging
 import "../src/corenft.sol";
-import "../src/weth.sol";
-import "../src/siggen.sol";
-import "../src/lendingcontractpro.sol";
+import "../src/archive/weth.sol";
+import "../src/archive/siggen.sol";
+import "../src/archive/lendingcontractpro.sol";
 import "../src/deposit.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";

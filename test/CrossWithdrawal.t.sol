@@ -5,8 +5,8 @@ import "forge-std/Test.sol";
 import "../src/deposit.sol";
 import "../src/corenft.sol";
 import "../src/accountops.sol";
-import "../src/weth.sol";
-import "../src/siggen.sol";
+import "../src/archive/weth.sol";
+import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
@@ -32,7 +32,8 @@ contract DepositTest is TestHelperOz5 {
 
     AdminDepositContract public depositLocal;
     AdminDepositContract public depositCross;
-    CoreNFTContract public nftContract;
+    CoreNFTContract public issuer1NftContract;
+    address public issuer1NftAddress;
     OperationsContract public accountOps;
     SignatureGenerator public siggen;
     WETH public weth;
@@ -55,10 +56,11 @@ contract DepositTest is TestHelperOz5 {
         user2 = address(3);
         
         
-        nftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
+        issuer1NftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
         
+        issuer1NftAddress = address(issuer1NftContract);
         accountOps = OperationsContract(
-            payable(_deployOApp(type(OperationsContract).creationCode, abi.encode(address(nftContract), address(endpoints[aEid]), address(0), address(issuer), address(this), 1)))
+            payable(_deployOApp(type(OperationsContract).creationCode, abi.encode(address(issuer1NftContract), address(endpoints[aEid]), address(0), address(issuer), address(this), 1)))
         );
 
         depositLocal = AdminDepositContract(
@@ -80,12 +82,12 @@ contract DepositTest is TestHelperOz5 {
         weth = new WETH();
         siggen = new SignatureGenerator();
         
-        depositCross.addSupportedToken(address(weth));
-        depositLocal.addSupportedToken(address(weth));
+        depositCross.addSupportedToken(issuer1NftAddress, address(weth));
+        depositLocal.addSupportedToken(issuer1NftAddress, address(weth));
 
 
-        nftContract.approveChain(aEid); // Adding a supported chain
-        nftContract.approveChain(bEid); // Adding a supported chain
+        issuer1NftContract.approveChain(aEid); // Adding a supported chain
+        issuer1NftContract.approveChain(bEid); // Adding a supported chain
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCross)); // Adding the deposit contract on a diff chain
         vm.stopPrank();
@@ -102,11 +104,11 @@ contract DepositTest is TestHelperOz5 {
         weth.deposit{value: amount}();
         weth.approve(address(depositLocal), 10 * 10**18);
         weth.approve(address(depositCross), 10 * 10**18);
-        tokenId = nftContract.mint{value:0.02*1e18}();
-        depositLocal.deposit(address(weth), tokenId, 1 * 10**18);
-        depositCross.deposit(address(weth), tokenId, 1 * 10**18);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
+        depositCross.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         vm.stopPrank();
-        assertEq(depositCross.getDepositAmount(address(weth), tokenId), 1 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 1 * 10**18);
     }
 
     // Add more test cases here, for example:
@@ -123,9 +125,9 @@ contract DepositTest is TestHelperOz5 {
 
         bytes memory options = new bytes(0);
         vm.startPrank(user);
-        accountOps.withdraw(address(weth), tokenId, 0.1 * 10**18, aEid, timestamp, 1, signature, options, address(user));
+        accountOps.withdraw(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, aEid, timestamp, 1, true, signature, options, addressToBytes32(address(user)));
         vm.stopPrank();
-        assertEq(depositLocal.getDepositAmount(address(weth), tokenId), 0.9 * 10**18);
+        assertEq(depositLocal.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.9 * 10**18);
     }
 
             // Add more test cases here, for example:
@@ -157,11 +159,11 @@ contract DepositTest is TestHelperOz5 {
 
         MessagingFee memory sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
         vm.startPrank(user);
-        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), tokenId, 0.1 * 10**18, bEid, timestamp, 1, signature, extraOptions, address(user));
+        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, bEid, timestamp, 1, true, signature, extraOptions, addressToBytes32(address(user)));
         vm.stopPrank();
         verifyPackets(bEid, addressToBytes32(address(depositCross)));
 
-        assertEq(depositCross.getDepositAmount(address(weth), tokenId), 0.9 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.9 * 10**18);
 
 
         timestamp = vm.unixTime();
@@ -181,11 +183,11 @@ contract DepositTest is TestHelperOz5 {
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
         vm.startPrank(user);
-        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), tokenId, 0.1 * 10**18, bEid, timestamp, 2, signature, extraOptions, address(user));
+        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, bEid, timestamp, 2, true, signature, extraOptions, addressToBytes32(address(user)));
         vm.stopPrank();
         verifyPackets(bEid, addressToBytes32(address(depositCross)));
 
-        assertEq(depositCross.getDepositAmount(address(weth), tokenId), 0.8 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.8 * 10**18);
     }
 
     function getIssuersSig(bytes32 digest) private view returns (bytes memory signature) {

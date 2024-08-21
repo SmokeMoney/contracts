@@ -4,23 +4,24 @@ pragma solidity ^0.8.13;
 import "forge-std/Test.sol";
 import "forge-std/console.sol"; // Import console for logging
 import "../src/corenft.sol";
-import "../src/weth.sol";
-import "../src/siggen.sol";
-import "../src/lendingcontract.sol";
+import "../src/archive/weth.sol";
+import "../src/archive/siggen.sol";
+import "../src/borrow.sol";
 import "../src/deposit.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
 
 
-contract DepositTest is TestHelperOz5 {
+contract BorrowTest is TestHelperOz5 {
     using ECDSA for bytes32;
 
     CoreNFTContract public nftContract;    
-    CrossChainLendingContract public lendingcontract;
+    MultiIssuerLendingContract public lendingcontract;
 
     SignatureGenerator public siggen;
     WETH public weth;
+    address public owner = address(69);
     address public issuer;
     uint256 internal issuerPk;
     address public user;
@@ -29,7 +30,7 @@ contract DepositTest is TestHelperOz5 {
     uint256 internal user2Pk;
     address public user3;
     address public user4 = address(4);
-
+    uint256 signatureValidity = 2 minutes;
 
     uint32 aEid = 1;
     uint32 bEid = 2;
@@ -49,21 +50,23 @@ contract DepositTest is TestHelperOz5 {
         super.setUp();
         setUpEndpoints(2, LibraryType.UltraLightNode);
 
-        vm.startPrank(issuer);
-
-        nftContract = new CoreNFTContract("AutoGas", "OG", issuer, issuer, 0.02 * 1e18, 10);
+        vm.startPrank(owner);
+        nftContract = new CoreNFTContract("AutoGas", "OG", issuer, owner, 0.02 * 1e18, 10);
         weth = new WETH();
         siggen = new SignatureGenerator();
-        lendingcontract = new CrossChainLendingContract(issuer, address(weth), aEid);
+        lendingcontract = new MultiIssuerLendingContract(address(weth), aEid);
+
+        lendingcontract.addIssuer(address(nftContract), issuer, 1000, 0, 1e15, 5e14, 1e13, 2);
+        vm.stopPrank();
+
+        vm.startPrank(issuer);
 
         nftContract.approveChain(adminChainIdReal); // Adding a supported chain
 
         vm.deal(issuer, 100 ether);
-        
         // Lending contract setup
         uint256 poolDepositAmount = 80 ether;
-        lendingcontract.poolDeposit{value: poolDepositAmount}(poolDepositAmount);
-
+        lendingcontract.poolDeposit{value: poolDepositAmount}(address(nftContract));
         vm.stopPrank();
         // assertEq(nftContract.adminChainId(), adminChainIdReal);
 
@@ -83,7 +86,7 @@ contract DepositTest is TestHelperOz5 {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(0.01 * 10**18), timestamp, uint256(0), uint256(adminChainIdReal)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(0.01 * 10**18), timestamp, signatureValidity, uint256(0), uint256(adminChainIdReal)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -91,13 +94,12 @@ contract DepositTest is TestHelperOz5 {
         
         // Mint an NFT for the user
         vm.startPrank(user2);
-        lendingcontract.borrow(tokenId, uint256(0.01 * 10**18), timestamp, uint256(0), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(0.01 * 10**18), timestamp, signatureValidity, uint256(0), false, signature);
         weth.deposit{value: 0.0095 * 10**18}();
         vm.stopPrank();
 
         vm.startPrank(issuer);
-        lendingcontract.setBorrowFees(0.00001*1e18);
-        lendingcontract.setBorrowFeeRecipient(address(42));
+        lendingcontract.setBorrowFees(address(nftContract), 0.00001*1e18);
         vm.stopPrank();
 
     }
@@ -107,7 +109,7 @@ contract DepositTest is TestHelperOz5 {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), uint256(adminChainIdReal)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -115,33 +117,33 @@ contract DepositTest is TestHelperOz5 {
         
         // Mint an NFT for the user
         vm.startPrank(user2);
-        lendingcontract.borrow(tokenId, uint256(25 * 10**18), timestamp, uint256(1), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), false, signature);
         vm.stopPrank();
         console.log("blockstamp", timestamp);
-        // assertEq(lendingcontract.getNetPosition(tokenId, user2), -25 * 10**18);
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2));   
+        // assertEq(lendingcontract.getNetPosition(address(nftContract), tokenId, user2), -25 * 10**18);
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2));   
         
         vm.warp(1720962298);
         timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(2), uint256(adminChainIdReal)));
+        digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(2), uint256(adminChainIdReal)));
         hash = siggen.getEthSignedMessageHash(digest);
         (v, r, s) = vm.sign(issuerPk, hash);
         signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
         vm.stopPrank();
 
         vm.startPrank(user2);
-        lendingcontract.borrow(tokenId, uint256(25 * 10**18), timestamp, uint256(2), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(2), false, signature);
         vm.stopPrank();
         console.log("blockstamp", timestamp);
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2));   
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2));   
 
         vm.startPrank(user3);
-        lendingcontract.repay{value: 25 ether}(tokenId, address(user2), address(user3));
+        lendingcontract.repay{value: 25 ether}(address(nftContract), tokenId, address(user2), address(user3));
         vm.stopPrank();
         console.log("");
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
-        console.log("Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2)); 
+        console.log("Borrow pos", lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         vm.warp(1720962398);
 
         vm.warp(1720962498);
@@ -149,28 +151,28 @@ contract DepositTest is TestHelperOz5 {
         vm.warp(1720962548);
 
         console.log("");
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
-        console.log("Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2)); 
+        console.log("Borrow pos", lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         vm.startPrank(user3);
-        lendingcontract.repay{value: 25.500017202568039109 ether}(tokenId, address(user2), address(user3));
+        lendingcontract.repay{value: 25.000017202568039109 ether}(address(nftContract), tokenId, address(user2), address(user3));
         vm.stopPrank(); 
         console.log("FULLY REPAID");
         console.log("");
         console.log("");
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
-        console.log("Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2)); 
+        console.log("Borrow pos", lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         console.log("");
         vm.warp(1720962598);
         vm.warp(1720962698);
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
-        console.log("Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2)); 
+        console.log("Borrow pos", lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         console.log("");
         console.log("after 13 years");
         vm.warp(2131105470);
-        console.log("user debt", lendingcontract.getNetPosition(tokenId, user2)); 
-        console.log("Total Borrow pos", lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log("user debt", lendingcontract.getNetPosition(address(nftContract), tokenId, user2)); 
+        console.log("Total Borrow pos", lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
 
-        console.log("After multi borrows        ", address(42).balance);
+        console.log("After multi borrows", address(42).balance);
     }
 
     function testBorrow2() public {
@@ -178,7 +180,7 @@ contract DepositTest is TestHelperOz5 {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), uint256(adminChainIdReal)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -186,23 +188,23 @@ contract DepositTest is TestHelperOz5 {
         
         // Mint an NFT for the user
         vm.startPrank(user2);
-        lendingcontract.borrow(tokenId, uint256(25 * 10**18), timestamp, uint256(1), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), false, signature);
         vm.stopPrank();
     }
 
     function testBorrowGasless() public {
         vm.warp(1720962281);
-        console.log(lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log(lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), uint256(adminChainIdReal)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
         vm.stopPrank();
 
         vm.startPrank(user2);
-        digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), uint256(adminChainIdReal)));
         hash = siggen.getEthSignedMessageHash(digest);
         ( v, r, s) = vm.sign(user2Pk, hash);
         bytes memory usersignature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -210,16 +212,16 @@ contract DepositTest is TestHelperOz5 {
         
         // Mint an NFT for the user
         vm.startPrank(user);
-        lendingcontract.borrowWithSignature(tokenId, uint256(25 * 10**18), timestamp, uint256(1), user2, usersignature, signature);
+        lendingcontract.borrowWithSignature(address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), false, true, user2, usersignature, signature);
         vm.stopPrank();
-        console.log(lendingcontract.getBorrowPosition(tokenId, user2));
+        console.log(lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2));
         console.log(address(user2));
     }
 
 
     function testRepay() public {
         vm.startPrank(user3);
-        lendingcontract.repay{value: 0.001 ether}(tokenId, address(user2), address(user3));
+        lendingcontract.repay{value: 0.001 ether}(address(nftContract), tokenId, address(user2), address(user3));
         vm.stopPrank();
         
     }
@@ -229,7 +231,7 @@ contract DepositTest is TestHelperOz5 {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        bytes32 digest = keccak256(abi.encodePacked(user2, tokenId, uint256(25 * 10**18), timestamp, uint256(1), uint256(adminChainIdReal)));
+        bytes32 digest = keccak256(abi.encodePacked(user2, address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), uint256(adminChainIdReal)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -237,14 +239,14 @@ contract DepositTest is TestHelperOz5 {
         
         // Mint an NFT for the user
         vm.startPrank(user2);
-        lendingcontract.borrow(tokenId, uint256(25 * 10**18), timestamp, uint256(1), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(25 * 10**18), timestamp, signatureValidity, uint256(1), false, signature);
         vm.stopPrank();
 
 
         vm.warp(1720962281);
         timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        digest = keccak256(abi.encodePacked(user, tokenId, uint256(10 * 10**18), timestamp, uint256(2), uint256(adminChainIdReal)));
+        digest = keccak256(abi.encodePacked(user, address(nftContract), tokenId, uint256(10 * 10**18), timestamp, signatureValidity, uint256(2), uint256(adminChainIdReal)));
         hash = siggen.getEthSignedMessageHash(digest);
         (v, r, s) = vm.sign(issuerPk, hash);
         signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -252,7 +254,7 @@ contract DepositTest is TestHelperOz5 {
 
         timestamp = vm.getBlockTimestamp();
         vm.startPrank(user);
-        digest = keccak256(abi.encodePacked(user, tokenId, uint256(10 * 10**18), timestamp, uint256(2), uint256(adminChainIdReal)));
+        digest = keccak256(abi.encodePacked(user, address(nftContract), tokenId, uint256(10 * 10**18), timestamp, signatureValidity, uint256(2), uint256(adminChainIdReal)));
         hash = siggen.getEthSignedMessageHash(digest);
         (v, r, s) = vm.sign(userPk, hash);
         bytes memory userSignature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -261,18 +263,18 @@ contract DepositTest is TestHelperOz5 {
         
         vm.txGasPrice(1);
         vm.startPrank(issuer);
-        lendingcontract.borrowWithSignature(tokenId, uint256(10 * 10**18), timestamp, uint256(2), user, userSignature, signature);
+        lendingcontract.borrowWithSignature(address(nftContract), tokenId, uint256(10 * 10**18), timestamp, signatureValidity, uint256(2), false, true, user, userSignature, signature);
         vm.stopPrank();
 
         vm.warp(1720963281);
         vm.prank(issuer);
-        lendingcontract.triggerAutogas(tokenId, user4);
+        lendingcontract.triggerAutogas(address(nftContract), tokenId, user4);
 
         vm.txGasPrice(2);
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer);
-        digest = keccak256(abi.encodePacked(user3, uint256(2), uint256(10 * 10**18), timestamp, uint256(0), uint256(adminChainIdReal)));
+        digest = keccak256(abi.encodePacked(user3, address(nftContract), uint256(2), uint256(10 * 10**18), timestamp, signatureValidity, uint256(0), uint256(adminChainIdReal)));
         hash = siggen.getEthSignedMessageHash(digest);
         (v, r, s) = vm.sign(issuerPk, hash);
         signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
@@ -280,12 +282,18 @@ contract DepositTest is TestHelperOz5 {
 
         vm.startPrank(user3);
         tokenId = nftContract.mint{value:0.02*1e18}();
-        lendingcontract.borrow(tokenId, uint256(10 * 10**18), timestamp, uint256(0), signature);
+        lendingcontract.borrow(address(nftContract), tokenId, uint256(10 * 10**18), timestamp, signatureValidity, uint256(0), false, signature);
         uint256[] memory borrowAmounts = new uint256[](4);
-        borrowAmounts[0] = lendingcontract.getBorrowPosition(1, user);
-        borrowAmounts[1] = lendingcontract.getBorrowPosition(1, user2);
-        borrowAmounts[2] = lendingcontract.getBorrowPosition(2, user3);
-        borrowAmounts[3] = lendingcontract.getBorrowPosition(1, user4);
+        borrowAmounts[0] = lendingcontract.getBorrowPosition(address(nftContract), 1, user);
+        borrowAmounts[1] = lendingcontract.getBorrowPosition(address(nftContract), 1, user2);
+        borrowAmounts[2] = lendingcontract.getBorrowPosition(address(nftContract), 2, user3);
+        borrowAmounts[3] = lendingcontract.getBorrowPosition(address(nftContract), 1, user4);
+
+        address[] memory issuerNFTs = new address[](4);
+        issuerNFTs[0] = address(nftContract);
+        issuerNFTs[1] = address(nftContract);
+        issuerNFTs[2] = address(nftContract);
+        issuerNFTs[3] = address(nftContract);
 
         uint256[] memory nftIds = new uint256[](4);
         nftIds[0] = 1;
@@ -303,7 +311,7 @@ contract DepositTest is TestHelperOz5 {
             totalBorrowed+=borrowAmounts[i];
         }
 
-        lendingcontract.repayMultiple{value: totalBorrowed}(nftIds, walletAddresses, borrowAmounts, user3);
+        lendingcontract.repayMultiple{value: totalBorrowed}(issuerNFTs, nftIds, walletAddresses, borrowAmounts, user3);
 
         vm.stopPrank();
         console.log("After multirepayment", address(42).balance);
@@ -315,7 +323,7 @@ contract DepositTest is TestHelperOz5 {
 
         console.log("issuer balance", issuer.balance);
         vm.startPrank(issuer);
-        lendingcontract.triggerAutogas(tokenId, user2);
+        lendingcontract.triggerAutogas(address(nftContract), tokenId, user2);
         console.log("issuer balance", issuer.balance);
         console.log(user2.balance);
         vm.stopPrank();
@@ -328,7 +336,7 @@ contract DepositTest is TestHelperOz5 {
         vm.startPrank(issuer);
         console.log(user2.balance);
         vm.txGasPrice(2);
-        lendingcontract.triggerAutogasSpike(tokenId, user2);
+        lendingcontract.triggerAutogasSpike(address(nftContract), tokenId, user2);
         vm.stopPrank();
         vm.startPrank(issuer);
         console.log("After autogas", address(42).balance);

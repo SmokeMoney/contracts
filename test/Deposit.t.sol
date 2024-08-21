@@ -5,8 +5,9 @@
     import "../src/deposit.sol";
     import "../src/corenft.sol";
     import "../src/accountops.sol";
-    import "../src/weth.sol";
-    import "../src/siggen.sol";
+    import "../src/wstETHOracleReceiver.sol";
+    import "../src/archive/weth.sol";
+    import "../src/archive/siggen.sol";
     import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
     import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
     import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";   
@@ -17,15 +18,24 @@
         }
     }
 
+    contract CrossDomainMessenger {
+        function xDomainMessageSender() external view returns (address) {
+            return address(42);
+        }
+    }
+
     contract DepositTest is TestHelperOz5 {
         using ECDSA for bytes32;
 
         AdminDepositContract public deposit;
-        CoreNFTContract public nftContract;
+        CoreNFTContract public issuer1NftContract;
+        address public issuer1NftAddress;
         OperationsContract public accountOps;
+        WstETHOracleReceiver public wstETHOracle;
+        CrossDomainMessenger public l2_messenger;
         SignatureGenerator public siggen;
         WETH public weth;
-        MockERC20 public mockToken;
+        MockERC20 public wstETH;
         address public issuer;
         address public user;
         address public user2;
@@ -44,14 +54,23 @@
             
             vm.startPrank(issuer);
 
-            nftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
-            accountOps = new OperationsContract(address(nftContract), address(endpoints[aEid]), address(0), issuer, issuer, 1);
+            wstETH = new MockERC20();
+            wstETH.transfer(user, 1000 * 10**18);
+            weth = new WETH();
+            
+            l2_messenger = new CrossDomainMessenger();
+            wstETHOracle = new WstETHOracleReceiver(address(l2_messenger), address(42));
+            wstETHOracle.setWstETHRatio(1.17*1e18);
+    
+            issuer1NftContract = new CoreNFTContract("AutoGas", "OG", issuer, address(this), 0.02 * 1e18, 10);
+            issuer1NftAddress = address(issuer1NftContract);
+            accountOps = new OperationsContract(address(issuer1NftContract), address(endpoints[aEid]), address(wstETHOracle), address(this), 1);
             weth = new WETH();
             siggen = new SignatureGenerator();
-            deposit = new AdminDepositContract(address(accountOps), address(0), address(0), address(0), 1, aEid, address(endpoints[aEid]), issuer, issuer);
-            deposit.addSupportedToken(address(weth));
+            deposit = new AdminDepositContract(address(accountOps), address(0), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this));
+            deposit.addSupportedToken(address(weth), issuer1NftAddress);
 
-            nftContract.approveChain(aEid); // Adding a supported chain
+            issuer1NftContract.approveChain(aEid); // Adding a supported chain
             accountOps.setDepositContract(aEid, address(deposit)); // Adding the deposit contract
             vm.stopPrank();
 
@@ -70,19 +89,19 @@
         function testDeposit() public {
             // Mint an NFT for the user
             vm.startPrank(user);
-            uint256 tokenId = nftContract.mint{value:0.02*1e18}();
-            deposit.deposit(address(weth), tokenId, 1 * 10**18);
+            uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+            deposit.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
             vm.stopPrank();
 
-            assertEq(deposit.getDepositAmount(address(weth), tokenId), 1 * 10**18);
+            assertEq(deposit.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 1 * 10**18);
         }
 
         // Add more test cases here, for example:
         function testWithdraw() public {
             // Mint an NFT for the user
             vm.startPrank(user);
-            uint256 tokenId = nftContract.mint{value:0.02*1e18}();
-            deposit.deposit(address(weth), tokenId, 1 * 10**18);
+            uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+            deposit.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
             vm.stopPrank();
 
             uint timestamp = vm.unixTime();
@@ -96,8 +115,8 @@
 
             bytes memory options = new bytes(0);
             vm.startPrank(user);
-            accountOps.withdraw(address(weth), tokenId, 0.1 * 10**18, aEid, timestamp, 1, signature, options, address(user));
+            accountOps.withdraw(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, aEid, timestamp, 1, true, signature, options, addressToBytes32(address(user)));
             vm.stopPrank();
-            assertEq(deposit.getDepositAmount(address(weth), tokenId), 0.9 * 10**18);
+            assertEq(deposit.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.9 * 10**18);
         }
     }

@@ -10,12 +10,12 @@ contract WstETHOracleReceiver {
     address public L1_SENDER;
 
     uint256 public lastUpdatedRatio;
-    uint256 public lastUpdatedBlockNumber;
+    uint256 public lastUpdatedTimestamp;
 
-    event ValueUpdated(uint256 value, uint256 blocknumber);
+    event ValueUpdated(uint256 value, uint256 timestamp);
 
-    constructor(ICrossDomainMessenger _l2Messenger, address _l1Sender) {
-        L2_MESSENGER = _l2Messenger;
+    constructor(address _l2Messenger, address _l1Sender) {
+        L2_MESSENGER = ICrossDomainMessenger(_l2Messenger);
         L1_SENDER = _l1Sender;
     }
 
@@ -30,13 +30,13 @@ contract WstETHOracleReceiver {
         require(L2_MESSENGER.xDomainMessageSender() == L1_SENDER, "Invalid sender");
 
         lastUpdatedRatio = ratio;
-        lastUpdatedBlockNumber = block.number;
+        lastUpdatedTimestamp = block.timestamp;
 
-        emit ValueUpdated(ratio, block.number);
+        emit ValueUpdated(ratio, block.timestamp);
     }
 
     function getLastUpdatedRatio() external view returns (uint256, uint256) {
-        return (lastUpdatedRatio, lastUpdatedBlockNumber);
+        return (lastUpdatedRatio, lastUpdatedTimestamp);
     }
 
     function setL1SenderContract(address _l1Sender) external {

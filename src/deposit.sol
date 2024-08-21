@@ -11,7 +11,8 @@ import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/l
 // import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IBorrowContract {
-    function getBorrowPositionSeparate(uint256 nftId, address wallet) external view returns (uint256, uint256, uint256);
+    function getBorrowPositionSeparate(address issuerNFT, uint256 nftId, address wallet) external view returns (uint256, uint256, uint256);
+    function getIssuerAddress(address issuerNFT) external view returns(address);
 }
 
 interface IWETH2 {
@@ -23,43 +24,43 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
 
-    address public issuer;
+    struct IssuerData {
+        bool isIssuerAnAsshole;
+        mapping(address => bool) supportedTokens;
+        mapping(address => mapping(uint256 => uint256)) deposits; // token => nftId => amount
+        mapping(address => mapping(uint256 => bool)) liquidationLocks; // token => nftId => isLocked
+        mapping(address => mapping(uint256 => uint256)) liquidationLockTimes; // token => nftId => lockTime
+        mapping(address => mapping(uint256 => uint256)) issuerLocks; // token => nftId => lockedAmount
+        mapping(uint256 => address) secondaryWithdrawalAddress; // nftId => Withdraw address
+        mapping(uint256 => uint256) withdrawalNonces; // nftId => nonce
+    }
+
+    mapping(address => IssuerData) public issuers; // issuer NFT contract -> data
     address public immutable accOpsContractAddress;
+    IBorrowContract public immutable borrowContract;
     address public immutable wethAddress;
     address public immutable wstETHAddress;
     uint32 public immutable nftContractChainId;
     uint32 public immutable chainId;
     IWETH2 public immutable WETH;
 
-    IBorrowContract public immutable borrowContract;
-    mapping(address => bool) public supportedTokens;
-    mapping(address => mapping(uint256 => uint256)) public deposits; // token => nftId => amount
-    mapping(address => mapping(uint256 => bool)) public liquidationLocks; // token => nftId => isLocked
-    mapping(address => mapping(uint256 => uint256)) public liquidationLockTimes; // token => nftId => lockTime
-    mapping(address => mapping(uint256 => uint256)) public issuerLocks; // token => nftId => lockedAmount
-    mapping(uint256 => uint256) public withdrawalNonces; // nftId => nonce
-    mapping(uint256 => uint256) public challengeNonces; // nftId => nonce
+    uint256 public challengePeriod;
 
-    uint256 public constant CHALLENGE_PERIOD = 24 hours;
-    uint256 public constant LIQUIDATION_LOCK_PERCENTAGE = 10; // 10%
+    uint256 public constant MIN_CHALLENGE_PERIOD = 24 hours;
+    uint256 public constant LIQUIDATION_LOCK_PERCENTAGE = 1000; // 10%
     uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
-    string public data = "Nothing received yet";
-    uint16 public constant SEND = 1;
-    uint16 public constant SEND_ABA = 2;
 
-    event TokenAdded(address token);
-    event TokenRemoved(address token);
-    event Deposited(address indexed user, address indexed token, uint256 indexed nftId, uint256 amount);
-    event WithdrawalExecuted(address indexed user, address indexed token, uint256 indexed nftId, uint256 amount);
-    event CrossChainWithdrawalExecuted(address indexed user, address indexed token, uint256 indexed nftId, uint256 amount);
-    event LiquidationLocked(address indexed token, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
-    event LiquidationExecuted(address indexed token, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
-    event LiquidationChallenged(address indexed token, uint256 indexed nftId, address challenger);
-    event PositionsReported(uint256 indexed assembleId, uint256 indexed nftId);
+    event TokenAdded(address indexed token, address indexed issuerNFT);
+    event TokenRemoved(address indexed token, address indexed issuerNFT);
+    event Deposited(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
+    event WithdrawalExecuted(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
+    event CrossChainWithdrawalExecuted(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
+    event LiquidationLocked(address indexed token, address indexed issuerNFT, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
+    event LiquidationExecuted(address indexed token, address indexed issuerNFT, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
+    event LiquidationChallenged(address indexed token, address indexed issuerNFT, uint256 indexed nftId, address challenger);
+    event PositionsReported(uint256 indexed assembleId, address indexed issuerNFT, uint256 indexed nftId);
 
-
-    constructor(address _accOpsContract, address _borrowContract, address _wethAddress, address _wstETHAddress, uint32 _nftContractChainId, uint32 _chainId, address _endpoint, address _issuer, address _owner) OApp(_endpoint, _owner) Ownable(_owner){
-        issuer = _issuer;
+    constructor(address _accOpsContract, address _borrowContract, address _wethAddress, address _wstETHAddress, uint32 _nftContractChainId, uint32 _chainId, address _endpoint, address _owner) OApp(_endpoint, _owner) Ownable(_owner){
         accOpsContractAddress = _accOpsContract;
         borrowContract = IBorrowContract(_borrowContract);
         wethAddress = _wethAddress;
@@ -67,60 +68,112 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         nftContractChainId = _nftContractChainId;
         chainId = _chainId;
         WETH = IWETH2(_wethAddress);
+        challengePeriod = MIN_CHALLENGE_PERIOD;
     }
 
-    modifier onlyIssuer() {
-        require(msg.sender == issuer, "Not the issuer");
+    modifier onlyIssuer(address issuerNFT) {
+        require(borrowContract.getIssuerAddress(issuerNFT) != address(0), "Invalid issuer");
+        require(msg.sender == borrowContract.getIssuerAddress(issuerNFT), "Not the issuer");
         _;
     }
 
-    function addSupportedToken(address token) external onlyIssuer {
+    function setChallengePeriod(uint256 newChallengePeriod) external onlyOwner {
+        require(newChallengePeriod > MIN_CHALLENGE_PERIOD, "Challenge period too low");
+        challengePeriod = newChallengePeriod;
+    }
+
+    function addSupportedToken(address token, address issuerNFT) external onlyIssuer(issuerNFT) {
         require(token != address(0), "Invalid token address");
-        require(!supportedTokens[token], "Token already supported");
-        supportedTokens[token] = true;
-        emit TokenAdded(token);
+
+        IssuerData storage issuerData = issuers[issuerNFT];
+        issuerData.supportedTokens[token] = true;
+        emit TokenAdded(token, issuerNFT);
     }
 
-    function removeSupportedToken(address token) external onlyIssuer {
-        require(supportedTokens[token], "Token not supported");
-        supportedTokens[token] = false;
-        emit TokenRemoved(token);
+    function removeSupportedToken(address token, address issuerNFT) external onlyIssuer(issuerNFT) {
+        IssuerData storage issuerData = issuers[issuerNFT];
+
+        require(issuerData.supportedTokens[token], "Token not supported");
+        issuerData.supportedTokens[token] = false;
+        emit TokenRemoved(token, issuerNFT);
     }
 
-    function deposit(address token, uint256 nftId, uint256 amount) external nonReentrant {
-        require(supportedTokens[token], "Token not supported");
+    function deposit(address issuerNFT, address token, uint256 nftId, uint256 amount) external nonReentrant {
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(issuerData.supportedTokens[token], "Token not supported");
         require(amount > 0, "Amount must be greater than 0");
-        require(!liquidationLocks[token][nftId], "Account is locked for liquidation");
+        require(!issuerData.liquidationLocks[token][nftId], "Account is locked for liquidation");
 
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        deposits[token][nftId] += amount;
+        issuerData.deposits[token][nftId] += amount;
 
-        emit Deposited(msg.sender, token, nftId, amount);
+        emit Deposited(msg.sender, issuerNFT, nftId, token, amount);
     }
 
-    function depositETH(uint256 nftId, uint256 amount) external payable nonReentrant {
+    function depositETH(address issuerNFT, uint256 nftId, uint256 amount) external payable nonReentrant {
+        IssuerData storage issuerData = issuers[issuerNFT];
         require(amount > 0, "Amount must be greater than 0");
         require(amount == msg.value, "Amount must be equal to msg.value");
-        require(!liquidationLocks[wethAddress][nftId], "Account is locked for liquidation");
+        require(!issuerData.liquidationLocks[wethAddress][nftId], "Account is locked for liquidation");
 
         WETH.deposit{value: amount}();
-        deposits[wethAddress][nftId] += amount;
+        issuerData.deposits[wethAddress][nftId] += amount;
 
-        emit Deposited(msg.sender, wethAddress, nftId, amount);
+        emit Deposited(msg.sender, issuerNFT, nftId, wethAddress, amount);
     }
 
-    function executeWithdrawal(address recipientAddress, address token, uint256 nftId, uint256 amount) external nonReentrant {
-        require(msg.sender == address(accOpsContractAddress), "Only NFT contract can execute withdrawals"); 
+    function secondaryWithdraw(
+        address issuerNFT,
+        bytes32 token,
+        uint256 nftId,
+        uint256 amount,
+        uint32 targetChainId,
+        uint256 timestamp,
+        uint256 nonce,
+        bool primary,
+        bytes memory signature,
+        bytes32 recipientAddress
+    ) external payable {
+        address issuerAddress = borrowContract.getIssuerAddress(issuerNFT);
+        require( issuerAddress != address(0), "Invalid issuer");
+        require( !primary, "Invalid withdrawal. Not a primary port");
+
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(issuerData.secondaryWithdrawalAddress[nftId] == msg.sender, 'Withdrawal not authorized');
+        require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
+
+        require(nonce == issuerData.withdrawalNonces[nftId], "Invalid withdraw nonce");
+
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, issuerNFT, token, nftId, amount, targetChainId, timestamp, nonce, primary));
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        require(ethSignedMessageHash.recover(signature) == issuerAddress, "Invalid withdraw signature");
+
+        executeWithdrawal(recipientAddress, token, issuerNFT, nftId, amount);
+        issuerData.withdrawalNonces[nftId]++;
+    }
+
+    function executeWithdrawal(bytes32 recipientBytes32, bytes32 tokenBytes32, address issuerNFT, uint256 nftId, uint256 amount) public nonReentrant {
+        address recipientAddress = bytes32ToAddress(recipientBytes32);
+        address token = bytes32ToAddress(tokenBytes32);
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(msg.sender == address(accOpsContractAddress), "Only NFT contract can execute withdrawals");
         //@attackvector TODO can this lead to arbitrary function call from the NFT contract and malicious withdrawal?
         require(address(0) != address(accOpsContractAddress), "On-chain Withdrawals are not allowed on this chain");
         require(amount > 0, "Amount must be greater than 0");
-        require(!liquidationLocks[token][nftId], "Account is locked for liquidation");
-        require(deposits[token][nftId] >= amount, "Insufficient balance");
+        require(!issuerData.liquidationLocks[token][nftId], "Account is locked for liquidation");
+        require(issuerData.deposits[token][nftId] >= amount, "Insufficient balance");
 
-        deposits[token][nftId] -= amount;   
-        IERC20(token).safeTransfer(recipientAddress, amount);
+        issuerData.deposits[token][nftId] -= amount;
+        if (token == wethAddress) {
+            WETH.withdraw(amount);
+            (bool success, ) = recipientAddress.call{value: amount}("");
+            require(success, "ETH transfer failed");
+        }
+        else {
+            IERC20(token).safeTransfer(recipientAddress, amount);
+        }
 
-        emit WithdrawalExecuted(recipientAddress, token, nftId, amount);
+        emit WithdrawalExecuted(recipientAddress, issuerNFT, nftId, token, amount);
     }
 
     function _lzReceive(
@@ -135,26 +188,34 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         (uint8 msgType, bytes memory decodedPayload) = decodeMessage(payload);
         if (msgType == 1){
             (
-                address recipientAddress,
-                address token,
+                bytes32 recipientAddress,
+                bytes32 token,
+                bytes32 issuerNFT,
                 uint256 nftId,
-                uint256 amount,
-                uint256 withdrawalNonce
-            ) = abi.decode(decodedPayload, (address, address, uint256, uint256, uint256));
+                uint256 amount
+            ) = abi.decode(decodedPayload, (bytes32, bytes32, bytes32, uint256, uint256));
     
-            _executeCrossChainWithdrawal(recipientAddress, token, nftId, amount, withdrawalNonce);
+            _executeCrossChainWithdrawal(recipientAddress, token, issuerNFT, nftId, amount);
+        }
+        else if (msgType == 2) {
+            (
+                bytes32 recipientAddress,
+                bytes32 token,
+                bytes32 issuerNFT,
+                uint256 nftId,
+                uint256 timestamp,
+                uint256 latestBorrowTimestamp
+            ) = abi.decode(decodedPayload, (bytes32, bytes32, bytes32, uint256, uint256, uint256));
+
+            _challengeLiquidation(token, issuerNFT, nftId, timestamp, latestBorrowTimestamp, recipientAddress);
         }
         else {
             (
-                address recipientAddress,
-                address token,
+                bytes32 issuerNFT,
                 uint256 nftId,
-                uint256 timestamp,
-                uint256 latestBorrowTimestamp,
-                uint256 challengeNonce
-            ) = abi.decode(decodedPayload, (address, address, uint256, uint256, uint256, uint256));
-
-            _crossChainLiqChallenge(token, nftId, timestamp, latestBorrowTimestamp, recipientAddress, challengeNonce);
+                bytes32 secondaryWithdrawalAddress
+            ) = abi.decode(decodedPayload, (bytes32, uint256, bytes32));
+            issuers[bytes32ToAddress(issuerNFT)].secondaryWithdrawalAddress[nftId] = bytes32ToAddress(secondaryWithdrawalAddress);
         }
     }
 
@@ -165,59 +226,69 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         (msgType, decodedPayload) = abi.decode(encodedMessage, (uint8, bytes));
     }
     
-
     function _executeCrossChainWithdrawal(
-        address recipientAddress,
-        address token,
+        bytes32 recipientBytes32,
+        bytes32 tokenBytes32,
+        bytes32 issuerNFTBytes32,
         uint256 nftId,
-        uint256 amount,
-        uint256 nonce
+        uint256 amount
     ) internal nonReentrant {
+        address recipientAddress = bytes32ToAddress(recipientBytes32);
+        address token = bytes32ToAddress(tokenBytes32);
+        address issuerNFT = bytes32ToAddress(issuerNFTBytes32);
 
-        require(supportedTokens[token], "Token not supported");
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(issuerData.supportedTokens[token], "Token not supported");
         require(amount > 0, "Amount must be greater than 0");
-        require(!liquidationLocks[token][nftId], "Account is locked for liquidation");
-        require(deposits[token][nftId] >= amount, "Insufficient balance");
-        require(nonce != withdrawalNonces[nftId], "Invalid cross nonce"); // @attackvector TODO I'm making sure a cross chain message can't be reused. Is this already handled by LZ? 
+        require(!issuerData.liquidationLocks[token][nftId], "Account is locked for liquidation");
+        require(issuerData.deposits[token][nftId] >= amount, "Insufficient balance");
 
-        deposits[token][nftId] -= amount;
-        IERC20(token).safeTransfer(recipientAddress, amount);
-        withdrawalNonces[nftId] = nonce;
+        issuerData.deposits[token][nftId] -= amount;
+        if (token == wethAddress) {
+            WETH.withdraw(amount);
+            (bool success, ) = recipientAddress.call{value: amount}("");
+            require(success, "ETH transfer failed");
+        }
+        else {
+            IERC20(token).safeTransfer(recipientAddress, amount);
+        }
 
-        emit CrossChainWithdrawalExecuted(recipientAddress, token, nftId, amount);
+        emit CrossChainWithdrawalExecuted(recipientAddress, issuerNFT, nftId, token, amount);
     }
 
-    function reportPositions(uint256 assembleId, uint256 nftId, address[] memory wallets, bytes calldata _extraOptions) external payable returns (bytes memory) {
-        uint256[] memory borrowAmounts = new uint256[](wallets.length);
-        uint256[] memory interestAmounts = new uint256[](wallets.length);
+    function reportPositions(uint256 assembleId, address issuerNFT, uint256 nftId, bytes32[] memory walletsBytes32, bytes calldata _extraOptions) external payable returns (bytes memory) {
+        require(nftId != 0, 'Invalid NFT Id'); // @attackVector test this by removing it. I think the attack can mark a chain's borrow positions as 0. 
+        IssuerData storage issuerData = issuers[issuerNFT];
+        uint256[] memory borrowAmounts = new uint256[](walletsBytes32.length);
+        uint256[] memory interestAmounts = new uint256[](walletsBytes32.length);
         uint256 latestBorrowTimestamp = 0;
         uint256 borrowTimestamp;
-        for (uint256 i = 0; i < wallets.length; i++) {
-            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) = borrowContract.getBorrowPositionSeparate(nftId, wallets[i]);
+        for (uint256 i = 0; i < walletsBytes32.length; i++) {
+            address wallet = bytes32ToAddress(walletsBytes32[i]);
+            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) = borrowContract.getBorrowPositionSeparate(issuerNFT, nftId, wallet);
             latestBorrowTimestamp = latestBorrowTimestamp > borrowTimestamp ? latestBorrowTimestamp : borrowTimestamp;
         }
 
-
         bytes memory payload = abi.encode(
             assembleId, 
+            addressToBytes32(issuerNFT), 
             nftId, 
-            deposits[wethAddress][nftId], //depositAmount
-            deposits[wstETHAddress][nftId], //wstETHDepositAmount
-            wethAddress, 
-            wstETHAddress, 
-            latestBorrowTimestamp, 
-            wallets, 
+            issuerData.deposits[wethAddress][nftId],
+            issuerData.deposits[wstETHAddress][nftId],
+            addressToBytes32(wethAddress),
+            addressToBytes32(wstETHAddress),
+            latestBorrowTimestamp,
+            walletsBytes32,
             borrowAmounts,
             interestAmounts
         );
 
         if (chainId == nftContractChainId) {
-            emit PositionsReported(assembleId, nftId);
+            emit PositionsReported(assembleId, issuerNFT, nftId);
             return payload;
-        }
-        else {
+        } else {
             _crossChainReport(payload, _extraOptions);
-            emit PositionsReported(assembleId, nftId);
+            emit PositionsReported(assembleId, issuerNFT, nftId);
             return payload;
         }
     }
@@ -243,94 +314,112 @@ contract AdminDepositContract is ReentrancyGuard, OApp, OAppOptionsType3 {
         fee = _quote(targetChainId, _payload, _extraOptions, _payInLzToken);
     }
 
-    function lockForLiquidation(address token, uint256 nftId, uint256 amount) external onlyIssuer {
-        require(supportedTokens[token], "Token not supported");
-        require(deposits[token][nftId] >= amount, "Insufficient balance for liquidation");
-        require(!liquidationLocks[token][nftId], "Account already locked for liquidation");
+    function lockForLiquidation(address issuerNFT, address token, uint256 nftId, uint256 amount) external onlyIssuer(issuerNFT) {
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(issuerData.supportedTokens[token], "Token not supported");
+        require(issuerData.deposits[token][nftId] >= amount, "Insufficient balance for liquidation");
+        require(!issuerData.liquidationLocks[token][nftId], "Account already locked for liquidation");
 
-        uint256 issuerLockAmount = (amount * LIQUIDATION_LOCK_PERCENTAGE) / 100;
+        uint256 issuerLockAmount = (amount * LIQUIDATION_LOCK_PERCENTAGE) / 10000;
         IERC20(token).safeTransferFrom(msg.sender, address(this), issuerLockAmount);
 
-        liquidationLocks[token][nftId] = true;
-        liquidationLockTimes[token][nftId] = block.timestamp;
-        issuerLocks[token][nftId] = issuerLockAmount;
+        issuerData.liquidationLocks[token][nftId] = true;
+        issuerData.liquidationLockTimes[token][nftId] = block.timestamp;
+        issuerData.issuerLocks[token][nftId] = issuerLockAmount;
 
-        emit LiquidationLocked(token, nftId, amount, issuerLockAmount);
+        emit LiquidationLocked(token, issuerNFT, nftId, amount, issuerLockAmount);
     }
 
-    function executeLiquidation(address token, uint256 nftId, uint256 amount) external onlyIssuer {
-        require(liquidationLocks[token][nftId], "Account not locked for liquidation");
-        require(block.timestamp >= liquidationLockTimes[token][nftId] + CHALLENGE_PERIOD, "Challenge period not over");
+    function executeLiquidation(address issuerNFT, address token, uint256 nftId, uint256 amount) external onlyIssuer(issuerNFT) {
+        IssuerData storage issuerData = issuers[issuerNFT];
+        require(issuerData.liquidationLocks[token][nftId], "Account not locked for liquidation");
+        require(block.timestamp >= issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period not over");
 
-        uint256 issuerLockAmount = issuerLocks[token][nftId];
-        require(deposits[token][nftId] >= amount, "Insufficient balance for liquidation");
+        uint256 issuerLockAmount = issuerData.issuerLocks[token][nftId];
+        require(issuerData.deposits[token][nftId] >= amount, "Insufficient balance for liquidation");
 
-        liquidationLocks[token][nftId] = false;
-        deposits[token][nftId] -= amount;
-        delete issuerLocks[token][nftId];
-        delete liquidationLockTimes[token][nftId];
+        issuerData.liquidationLocks[token][nftId] = false;
+        issuerData.deposits[token][nftId] -= amount;
+        delete issuerData.issuerLocks[token][nftId];
+        delete issuerData.liquidationLockTimes[token][nftId];
 
+        address issuer = borrowContract.getIssuerAddress(issuerNFT);
         IERC20(token).safeTransfer(issuer, amount + issuerLockAmount);
 
-        emit LiquidationExecuted(token, nftId, amount, issuerLockAmount);
+        emit LiquidationExecuted(token, issuerNFT, nftId, amount, issuerLockAmount);
     }
 
-    function onChainLiqChallenge(address token, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipient) external nonReentrant {
+    function onChainLiqChallenge(bytes32 token, bytes32 issuerNFT, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipient) external nonReentrant {
         require(msg.sender == address(accOpsContractAddress), "Only NFT contract can execute withdrawals");
         require(address(0) != address(accOpsContractAddress), "On-chain Withdrawals are not allowed on this chain");
-        _challengeLiquidation(token, nftId, assembleTimestamp, latestBorrowTimestamp, recipient);
+        _challengeLiquidation(token, issuerNFT, nftId, assembleTimestamp, latestBorrowTimestamp, recipient);
     }
 
-    function _crossChainLiqChallenge(address token, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipient, uint256 nonce) internal nonReentrant {
-        require(nonce != challengeNonces[nftId], "Invalid cross chain challenge nonce"); // @attackvector TODO I'm making sure a cross chain message can't be reused. Is this already handled by LZ? 
-        _challengeLiquidation(token, nftId, assembleTimestamp, latestBorrowTimestamp, recipient);
-        challengeNonces[nftId] = nonce;
-    }
+    function _challengeLiquidation(bytes32 tokenBytes32, bytes32 issuerNFTBytes32, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipientBytes32) internal {
+        address token = bytes32ToAddress(tokenBytes32);
+        address recipient = bytes32ToAddress(recipientBytes32);
+        address issuerNFT = bytes32ToAddress(issuerNFTBytes32);        
 
-    function _challengeLiquidation(address token, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, address recipient) internal {
-        require(liquidationLocks[token][nftId], "Account not locked for liquidation");
-        require(block.timestamp < liquidationLockTimes[token][nftId] + CHALLENGE_PERIOD, "Challenge period over");
-        require(liquidationLockTimes[token][nftId] < assembleTimestamp, "Assembled before liquidation lock");
+        IssuerData storage issuerData = issuers[issuerNFT];
 
-        uint256 issuerLockAmount = issuerLocks[token][nftId];
-        liquidationLocks[token][nftId] = false;
-        delete issuerLocks[token][nftId];
-        delete liquidationLockTimes[token][nftId];
-        if (liquidationLockTimes[token][nftId] < latestBorrowTimestamp) {
+        require(issuerData.liquidationLocks[token][nftId], "Account not locked for liquidation");
+        require(block.timestamp < issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period over");
+        require(issuerData.liquidationLockTimes[token][nftId] < assembleTimestamp, "Assembled before liquidation lock");
+
+        uint256 issuerLockAmount = issuerData.issuerLocks[token][nftId];
+        issuerData.liquidationLocks[token][nftId] = false;
+        delete issuerData.issuerLocks[token][nftId];
+        delete issuerData.liquidationLockTimes[token][nftId];
+
+        address issuer = borrowContract.getIssuerAddress(issuerNFT);
+        if (issuerData.liquidationLockTimes[token][nftId] < latestBorrowTimestamp) {
             IERC20(token).safeTransfer(issuer, issuerLockAmount);
-            emit LiquidationChallenged(token, nftId, issuer);
-        }
-        else {
+            emit LiquidationChallenged(token, issuerNFT, nftId, issuer);
+        } else {
+            issuerData.isIssuerAnAsshole = true;
             IERC20(token).safeTransfer(recipient, issuerLockAmount);
-            emit LiquidationChallenged(token, nftId, recipient);
+            emit LiquidationChallenged(token, issuerNFT, nftId, recipient);
         }
-    }
-
-    function setNewIssuer(address newIssuer) external onlyIssuer {
-        issuer = newIssuer;
     }
 
     function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
 
-    function getDepositAmount(address token, uint256 nftId) external view returns (uint256) {
-        return deposits[token][nftId];
+    function getDepositAmount(address issuerNFT, address token, uint256 nftId) external view returns (uint256) {
+        return issuers[issuerNFT].deposits[token][nftId];
     }
 
-    function isLiquidationLocked(address token, uint256 nftId) external view returns (bool) {
-        return liquidationLocks[token][nftId];
+    function isLiquidationLocked(address issuerNFT, address token, uint256 nftId) external view returns (bool) {
+        return issuers[issuerNFT].liquidationLocks[token][nftId];
     }
 
-    function getLiquidationLockTime(address token, uint256 nftId) external view returns (uint256) {
-        return liquidationLockTimes[token][nftId];
+    function getLiquidationLockTime(address issuerNFT, address token, uint256 nftId) external view returns (uint256) {
+        return issuers[issuerNFT].liquidationLockTimes[token][nftId];
     }
 
-    function getIssuerLockAmount(address token, uint256 nftId) external view returns (uint256) {
-        return issuerLocks[token][nftId];
+    function getIssuerLockAmount(address issuerNFT, address token, uint256 nftId) external view returns (uint256) {
+        return issuers[issuerNFT].issuerLocks[token][nftId];
     }
 
-    function getCurrentNonce(uint256 nftId) external view returns (uint256) {
-        return withdrawalNonces[nftId];
+    function getCurrentNonce(address issuerNFT, uint256 nftId) external view returns (uint256) {
+        return issuers[issuerNFT].withdrawalNonces[nftId];
+    }
+
+        /**
+     * @dev Converts bytes32 to an address.
+     * @param _b The bytes32 value to convert.
+     * @return The address representation of bytes32.
+     */
+    function bytes32ToAddress(bytes32 _b) internal pure returns (address) {
+        return address(uint160(uint256(_b)));
+    }
+        /**
+     * @dev Converts an address to bytes32.
+     * @param _addr The address to convert.
+     * @return The bytes32 representation of the address.
+     */
+    function addressToBytes32(address _addr) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(_addr)));
     }
 }

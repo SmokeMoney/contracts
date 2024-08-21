@@ -21,6 +21,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
         uint256 amount;
         uint256 timestamp;
     }
+
     struct InterestRateChange {
         uint256 timestamp;
         uint256 rate;
@@ -45,7 +46,7 @@ contract CrossChainLendingContract is ReentrancyGuard, Ownable {
     uint256 public autogasRefillAmount; // Fixed amount for autogas refill
     uint256 public repaymentThreshold; // Threshold for considering a debt fully repaid
     uint256 public gasPriceThreshold; // Threshold for considering a debt fully repaid
-    uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
+    uint256 public constant SIGNATURE_VALIDITY = 1 minutes;
     uint256 public immutable chainId;
 
     event Borrowed(uint256 indexed nftId, address indexed wallet, uint256 amount);
