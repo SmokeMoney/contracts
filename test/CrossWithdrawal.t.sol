@@ -42,7 +42,6 @@ contract DepositTest is TestHelperOz5 {
     uint256 internal issuerPk;
     uint256 tokenId;
 
-
     function setUp() public virtual override {
         (issuer, issuerPk) = makeAddrAndKey("issuer");
 
@@ -108,7 +107,7 @@ contract DepositTest is TestHelperOz5 {
         depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         depositCross.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         vm.stopPrank();
-        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 1 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 1 * 10**18);
     }
 
     // Add more test cases here, for example:
@@ -124,10 +123,23 @@ contract DepositTest is TestHelperOz5 {
         vm.stopPrank();     
 
         bytes memory options = new bytes(0);
+
+        OperationsContract.WithdrawParams memory params = OperationsContract.WithdrawParams({
+            issuerNFT: issuer1NftAddress,
+            token: addressToBytes32(address(weth)),
+            nftId: tokenId,
+            amount: 0.1 * 10**18,
+            targetChainId: aEid,
+            timestamp: timestamp,
+            nonce: 1,
+            primary: true,
+            recipientAddress: addressToBytes32(address(user))
+        });
+
         vm.startPrank(user);
-        accountOps.withdraw(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, aEid, timestamp, 1, true, signature, options, addressToBytes32(address(user)));
+        accountOps.withdraw(params, signature, options);
         vm.stopPrank();
-        assertEq(depositLocal.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.9 * 10**18);
+        assertEq(depositLocal.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 0.9 * 10**18);
     }
 
             // Add more test cases here, for example:
@@ -158,12 +170,25 @@ contract DepositTest is TestHelperOz5 {
         );
 
         MessagingFee memory sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
+
+        OperationsContract.WithdrawParams memory params = OperationsContract.WithdrawParams({
+            issuerNFT: issuer1NftAddress,
+            token: addressToBytes32(address(weth)),
+            nftId: tokenId,
+            amount: 0.1 * 10**18,
+            targetChainId: bEid,
+            timestamp: timestamp,
+            nonce: 1,
+            primary: true,
+            recipientAddress: addressToBytes32(address(user))
+        });
+
         vm.startPrank(user);
-        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, bEid, timestamp, 1, true, signature, extraOptions, addressToBytes32(address(user)));
+        accountOps.withdraw{value: sendFee.nativeFee}(params, signature, extraOptions);
         vm.stopPrank();
         verifyPackets(bEid, addressToBytes32(address(depositCross)));
 
-        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.9 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 0.9 * 10**18);
 
 
         timestamp = vm.unixTime();
@@ -182,12 +207,25 @@ contract DepositTest is TestHelperOz5 {
         );
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
+
+        params = OperationsContract.WithdrawParams({
+            issuerNFT: issuer1NftAddress,
+            token: addressToBytes32(address(weth)),
+            nftId: tokenId,
+            amount: 0.1 * 10**18,
+            targetChainId: bEid,
+            timestamp: timestamp,
+            nonce: 2,
+            primary: true,
+            recipientAddress: addressToBytes32(address(user))
+        });
+
         vm.startPrank(user);
-        accountOps.withdraw{value: sendFee.nativeFee}(address(weth), addressToBytes32(issuer1NftAddress), tokenId, 0.1 * 10**18, bEid, timestamp, 2, true, signature, extraOptions, addressToBytes32(address(user)));
+        accountOps.withdraw{value: sendFee.nativeFee}(params, signature, extraOptions);
         vm.stopPrank();
         verifyPackets(bEid, addressToBytes32(address(depositCross)));
 
-        assertEq(depositCross.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 0.8 * 10**18);
+        assertEq(depositCross.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 0.8 * 10**18);
     }
 
     function getIssuersSig(bytes32 digest) private view returns (bytes memory signature) {

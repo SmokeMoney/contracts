@@ -8,6 +8,7 @@ import "../src/accountops.sol";
 import "../src/borrow.sol";
 import "../src/wstETHOracleReceiver.sol";
 
+
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -56,11 +57,12 @@ contract Setup is TestHelperOz5 {
     OperationsContract public accountOps;
     WstETHOracleReceiver public wstETHOracle;
     CrossDomainMessenger public l2_messenger;
-    MultiIssuerLendingContract public lendingcontract;
-    MultiIssuerLendingContract public lendingcontractB;
-    MultiIssuerLendingContract public lendingcontractD;
-    MultiIssuerLendingContract public lendingcontractC;
+    SmokeSpendingContract public lendingcontract;
+    SmokeSpendingContract public lendingcontractB;
+    SmokeSpendingContract public lendingcontractD;
+    SmokeSpendingContract public lendingcontractC;
     SignatureGenerator public siggen;
+    
     WETH public weth;   
     MockERC20 public wstETH;
     address public issuer1;
@@ -95,13 +97,15 @@ contract Setup is TestHelperOz5 {
 
         issuer1NftAddress = address(issuer1NftContract);
         
-        lendingcontract = new MultiIssuerLendingContract(address(weth), uint256(aEid));
-        lendingcontractB = new MultiIssuerLendingContract(address(weth), uint256(bEid));
-        lendingcontractC = new MultiIssuerLendingContract(address(weth), uint256(cEid));
-        lendingcontractD = new MultiIssuerLendingContract(address(weth), uint256(dEid));
+        lendingcontract = new SmokeSpendingContract(address(weth), uint256(aEid));
+        lendingcontractB = new SmokeSpendingContract(address(weth), uint256(bEid));
+        lendingcontractC = new SmokeSpendingContract(address(weth), uint256(cEid));
+        lendingcontractD = new SmokeSpendingContract(address(weth), uint256(dEid));
 
         l2_messenger = new CrossDomainMessenger();
         wstETHOracle = new WstETHOracleReceiver(address(l2_messenger), address(42));
+
+        vm.prank(address(l2_messenger));
         wstETHOracle.setWstETHRatio(1.17*1e18);
 
         accountOps = OperationsContract(
@@ -137,6 +141,15 @@ contract Setup is TestHelperOz5 {
         this.wireOApps(oapps);
 
         accountOps.addIssuer(issuer1NftAddress);
+        lendingcontract.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
+        lendingcontractB.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
+        lendingcontractC.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
+        lendingcontractD.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
+
+        accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
+        accountOps.setDepositContract(bEid, address(depositCrossB)); // Adding the deposit contract on a diff chain
+        accountOps.setDepositContract(cEid, address(depositCrossC)); // Adding the deposit contract on a diff chain
+        accountOps.setDepositContract(dEid, address(depositCrossD)); // Adding the deposit contract on a diff chain
 
         vm.startPrank(issuer1);
         
@@ -158,11 +171,6 @@ contract Setup is TestHelperOz5 {
         issuer1NftContract.approveChain(bEid); // Adding a supported chain
         issuer1NftContract.approveChain(cEid); // Adding a supported chain
         issuer1NftContract.approveChain(dEid); // Adding a supported chain
-
-        accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
-        accountOps.setDepositContract(bEid, address(depositCrossB)); // Adding the deposit contract on a diff chain
-        accountOps.setDepositContract(cEid, address(depositCrossC)); // Adding the deposit contract on a diff chain
-        accountOps.setDepositContract(dEid, address(depositCrossD)); // Adding the deposit contract on a diff chain
         vm.stopPrank();
 
         assertEq(accountOps.adminChainId(), aEid);
@@ -179,8 +187,13 @@ contract Setup is TestHelperOz5 {
 
 
         depositCrossB.depositETH{value: 1e18}(issuer1NftAddress, tokenId, 1e18);
+        depositLocal.depositETH{value: 1e18}(issuer1NftAddress, tokenId, 1e18);
         depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         depositCrossD.deposit(issuer1NftAddress, address(wstETH), tokenId, 1 * 10**18);
+
+    }
+
+    function setupRateLimits() public virtual {
 
 
         uint256[] memory chainIds = new uint256[](4);
@@ -211,8 +224,13 @@ contract Setup is TestHelperOz5 {
         console.log("Amoutn deposited, limits set");
         vm.stopPrank();
         
-        assertEq(depositCrossB.getDepositAmount(issuer1NftAddress, address(weth), tokenId), 1 * 10**18);
+        assertEq(depositCrossB.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 1 * 10**18);
 
+    }
+
+    function superSetup() public virtual {
+
+        super.setUp();
     }
 
 

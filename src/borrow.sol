@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IWETH {
     function deposit() external payable;
@@ -44,6 +45,18 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         mapping(uint256 => mapping(address => BorrowPosition)) borrowPositions; // nftId => wallet => BorrowPosition  
         mapping(uint256 => uint256) borrowNonces; // nftId => nonce  
         mapping(uint256 => address[]) borrowers; // nftId => array of borrower addresses 
+    }
+
+    struct BorrowParams {
+        address issuerNFT;
+        uint256 nftId;
+        uint256 amount;
+        uint256 timestamp;
+        uint256 signatureValidity;
+        uint256 nonce;
+        bool weth;
+        bool repayGas;
+        address recipient;
     }
     
     IWETH public immutable WETH;
@@ -89,7 +102,6 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         address issuerNFT,
         address _issuerAddress,
         uint256 _borrowInterestRate,
-        uint256 _borrowFees,
         uint256 _autogasThreshold,
         uint256 _autogasRefillAmount,
         uint256 _repaymentThreshold,
@@ -100,7 +112,6 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         IssuerData storage newIssuer = issuers[issuerNFT];
         newIssuer.issuerAddress = _issuerAddress;
         newIssuer.borrowInterestRate = _borrowInterestRate;
-        newIssuer.borrowFees = _borrowFees;
         newIssuer.autogasThreshold = _autogasThreshold;
         newIssuer.autogasRefillAmount = _autogasRefillAmount;
         newIssuer.repaymentThreshold = _repaymentThreshold;
@@ -141,40 +152,53 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
     }
 
     function borrowWithSignature(
-        address issuerNFT,
-        uint256 nftId,
-        uint256 amount,
-        uint256 timestamp,
-        uint256 signatureValidity,
-        uint256 nonce,
-        bool weth,
-        bool repayGas,
-        address recipient,
+        BorrowParams memory params,
         bytes memory userSignature,
         bytes memory issuerSignature
     ) external nonReentrant {
         uint256 gasStart = gasleft();
-        IssuerData storage issuerData = issuers[issuerNFT];
-        require(amount > 0, "Borrow amount must be greater than 0");
-        require(block.timestamp <= timestamp + signatureValidity, "Signature expired");
-        require(nonce == issuerData.borrowNonces[nftId], "Invalid nonce");
+        IssuerData storage issuerData = issuers[params.issuerNFT];
+        require(params.amount > 0, "Borrow amount must be greater than 0");
+        require(block.timestamp <= params.timestamp + params.signatureValidity, "Signature expired");
+        require(params.nonce == issuerData.borrowNonces[params.nftId], "Invalid nonce");
         require(issuerData.issuerAddress != address(0), "Invalid issuer");
-        require(issuerData.poolDeposited >= amount, "Insufficient issuer pool");
+        require(issuerData.poolDeposited >= params.amount, "Insufficient issuer pool");
         
         // The borrower can be different from the signer. The signer signs with borrower's address in the signature. 
         // The issuer verifies that the signature is from the signer himself. If not he won't approve it. 
-        bytes32 messageHash = keccak256(abi.encodePacked(recipient, issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, chainId));
+        address signer = _validateSignatures(params, userSignature, issuerSignature);
+
+        _executeBorrowAndSend(params.issuerNFT, params.nftId, signer, params.amount, params.recipient, params.weth);
+        
+        if (params.repayGas) {
+            uint256 paymentAmount = (gasStart - gasleft()) * tx.gasprice * 2;
+            _executeBorrowAndSend(params.issuerNFT, params.nftId, signer, paymentAmount, msg.sender, params.weth);
+        }
+        
+        issuers[params.issuerNFT].borrowNonces[params.nftId]++;
+    }
+
+    function _validateSignatures(
+        BorrowParams memory params,
+        bytes memory userSignature,
+        bytes memory issuerSignature
+    ) internal view returns (address) {
+        bytes32 messageHash = keccak256(abi.encodePacked(
+            params.recipient,
+            params.issuerNFT,
+            params.nftId,
+            params.amount,
+            params.timestamp,
+            params.signatureValidity,
+            params.nonce,
+            chainId
+        ));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         
         address signer = ethSignedMessageHash.recover(userSignature);
-        require(ethSignedMessageHash.recover(issuerSignature) == issuerData.issuerAddress, "Invalid issuer signature");
-
-        _executeBorrowAndSend(issuerNFT, nftId, signer, amount, recipient, weth);
-        if (repayGas){
-            uint256 paymentAmount = (gasStart - gasleft()) * tx.gasprice * 2;
-            _executeBorrowAndSend(issuerNFT, nftId, signer, paymentAmount, msg.sender, weth);
-        }
-        issuerData.borrowNonces[nftId]++;
+        require(ethSignedMessageHash.recover(issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid issuer signature");
+        
+        return signer;
     }
 
     function _executeBorrow(address issuerNFT, uint256 nftId, address wallet, uint256 amount, bool weth) internal {
@@ -187,20 +211,20 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
             issuerData.borrowers[nftId].push(wallet);
         }
 
+        if(weth){
+            WETH.transfer(wallet, amount);
+        }
+        else {
+            WETH.withdraw(amount);
+            (bool success, ) = wallet.call{value: amount}("");
+            require(success, "ETH transfer failed");
+        }
+
         borrowPosition.amount += borrowInterest + amount + issuerData.borrowFees + smokeFees;
         borrowPosition.timestamp = block.timestamp;
         issuerData.smokeFeesCollected += smokeFees;
 
         issuerData.poolDeposited -= amount;
-
-        if(weth){
-            WETH.withdraw(amount);
-            (bool success, ) = wallet.call{value: amount}("");
-            require(success, "ETH transfer failed");
-        }
-        else {
-            WETH.transfer(wallet, amount);
-        }
 
         emit Borrowed(issuerNFT, nftId, wallet, amount);
     }
@@ -215,20 +239,20 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
             issuerData.borrowers[nftId].push(signer);
         }
 
+        if(weth){
+            WETH.transfer(recipient, amount);
+        }
+        else {
+            WETH.withdraw(amount);
+            (bool success, ) = recipient.call{value: amount}("");
+            require(success, "ETH transfer failed");
+        }
+
         borrowPosition.amount += borrowInterest + amount + issuerData.borrowFees + smokeFees;
         borrowPosition.timestamp = block.timestamp;
         issuerData.smokeFeesCollected += smokeFees;
 
         issuerData.poolDeposited -= amount;
-
-        if(weth){
-            WETH.withdraw(amount);
-            (bool success, ) = recipient.call{value: amount}("");
-            require(success, "ETH transfer failed");
-        }
-        else {
-            WETH.transfer(recipient, amount);
-        }
 
         emit BorrowedAndSent(issuerNFT, nftId, signer, amount, recipient);
     }
@@ -389,10 +413,10 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         IssuerData storage issuerData = issuers[issuerNFT];
 
         require(issuerData.poolDeposited - issuerData.smokeFeesCollected >= amount, "Insufficient pool balance");
-        issuers[issuerNFT].poolDeposited -= amount;
         WETH.withdraw(amount);
         (bool success, ) = msg.sender.call{value: amount}("");
         require(success, "ETH transfer failed");
+        issuers[issuerNFT].poolDeposited -= amount;
         emit PoolWithdrawn(issuerNFT, amount);
     }
 

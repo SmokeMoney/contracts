@@ -26,8 +26,7 @@ contract DepositTest is Setup {
 
     function setUp() public virtual override {
         super.setUp();
-        (issuer1, issuer1Pk) = makeAddrAndKey("issuer1");
-
+        // super.setupRateLimits();
     }
 
     function testAddWallets() public {
@@ -67,12 +66,14 @@ contract DepositTest is Setup {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer1);
-        bytes32 digest = keccak256(abi.encode(tokenId, user, chainIds, amounts, timestamp, uint256(0)));
+        
+        bytes32 digest = keccak256(abi.encode(tokenId, addressToBytes32(user), abi.encode(chainIds), abi.encode(amounts), timestamp, uint256(0)));
         bytes32 hash = siggen.getEthSignedMessageHash(digest);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, hash);
         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
         vm.stopPrank();
 
+        console.logBytes32(digest);
         vm.startPrank(user);
         issuer1NftContract.setLowerBulkLimits(tokenId, addressToBytes32(user), chainIds, amounts, timestamp, 0, signature);
         console.log("set lower limits at", timestamp);
@@ -85,12 +86,13 @@ contract DepositTest is Setup {
         timestamp = vm.getBlockTimestamp();
         uint256 newlimit = 0.1 * 10**18;
         vm.startPrank(issuer1);
-        digest = keccak256(abi.encodePacked(tokenId, user, uint256(3), newlimit, timestamp, uint256(1)));
+        digest = keccak256(abi.encodePacked(tokenId, addressToBytes32(user), uint256(3), newlimit, timestamp, uint256(1)));
         hash = siggen.getEthSignedMessageHash(digest);
         (v, r, s) = vm.sign(issuer1Pk, hash);
         signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
         vm.stopPrank();
-
+        
+        
         vm.startPrank(user);
         issuer1NftContract.setLowerLimit(tokenId, addressToBytes32(user), 3, newlimit, timestamp, 1, signature);
         console.log("set lower limits at", timestamp);

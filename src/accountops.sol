@@ -5,15 +5,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
-// import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 
 interface ICoreNFTContract {
-    struct GNFTWallet {
-        uint256 gNFT;
-        bytes32 gWallet;
-    }
-
     function ownerOf(uint256 nftId) external view returns (address);
     function isManagerOrOwner(uint256 nftId, address addr) external view returns (bool);
     function isWalletAdded(uint256 nftId, bytes32 wallet) external view returns (bool);
@@ -33,7 +28,7 @@ interface ICoreNFTContract {
 interface IDepositContract {
     function executeWithdrawal(bytes32 user, bytes32 token, address issuerNFT, uint256 nftId, uint256 amount) external;
     function reportPositions(uint256 assembleId, address issuerNFT, uint256 nftId, bytes32[] memory wallets, bytes calldata _extraOptions) external payable returns (bytes memory);
-    function onChainLiqChallenge(bytes32 token, bytes32 issuerNFT, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipient) external;
+    function onChainLiqChallenge(bytes32 issuerNFT, uint256 nftId, bytes32 token, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipient) external;
 }
 
 interface IWstETHOracleReceiver {
@@ -78,9 +73,16 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         uint256 latestBorrowTimestamp;
     }
 
-    struct GNFTWallet {
-        uint256 gNFT;
-        bytes32 gWallet;
+    struct WithdrawParams {
+        address issuerNFT;
+        bytes32 token;
+        uint256 nftId;
+        uint256 amount;
+        uint32 targetChainId;
+        uint256 timestamp;
+        uint256 nonce;
+        bool primary;
+        bytes32 recipientAddress;
     }
 
     ICoreNFTContract public coreNFTContract;
@@ -152,36 +154,43 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
     }
 
     function withdraw(
-        address issuerNFT,
-        bytes32 token,
-        uint256 nftId,
-        uint256 amount,
-        uint32 targetChainId,
-        uint256 timestamp,
-        uint256 nonce,
-        bool primary,
+        WithdrawParams memory params,
         bytes memory signature,
-        bytes calldata _extraOptions, 
-        bytes32 recipientAddress
+        bytes calldata _extraOptions
     ) external payable {
-        require(issuers[issuerNFT] != address(0), "Invalid issuer");
-        require(ICoreNFTContract(issuerNFT).isManagerOrOwner(nftId, msg.sender), "Not authorized");
-        require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
-        require(primary, "Invalid withdrawal. Not a secondary port");
+        require(issuers[params.issuerNFT] != address(0), "Invalid issuer");
+        require(ICoreNFTContract(params.issuerNFT).isManagerOrOwner(params.nftId, msg.sender), "Not authorized");
+        require(block.timestamp <= params.timestamp + SIGNATURE_VALIDITY, "Signature expired");
+        require(params.primary, "Invalid withdrawal. Not a secondary port");
+        require(params.nonce == withdrawalNonces[params.nftId], "Invalid withdraw nonce");
 
-        require(nonce == withdrawalNonces[nftId], "Invalid withdraw nonce");
+        _validateWithdrawSignature(params, signature);
+        _executeWithdrawal(params.recipientAddress, params.token, params.issuerNFT, params.nftId, params.amount, params.targetChainId, _extraOptions);
+    }
 
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, issuerNFT, token, nftId, amount, targetChainId, timestamp, nonce, primary));
+    function _validateWithdrawSignature(WithdrawParams memory params, bytes memory signature) internal view {
+        bytes32 messageHash = keccak256(abi.encodePacked(
+            msg.sender, 
+            params.issuerNFT, 
+            params.token, 
+            params.nftId, 
+            params.amount, 
+            params.targetChainId, 
+            params.timestamp, 
+            params.nonce, 
+            params.primary
+        ));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        require(ethSignedMessageHash.recover(signature) == issuers[issuerNFT], "Invalid withdraw signature");
-
-        _executeWithdrawal(recipientAddress, token, issuerNFT, nftId, amount, targetChainId, _extraOptions);
+        require(ethSignedMessageHash.recover(signature) == issuers[params.issuerNFT], "Invalid withdraw signature");
     }
 
     function _executeWithdrawal(bytes32 recipientAddress, bytes32 token, address issuerNFT, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {
+        
+
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];
             require(address(depositContract) != address(0), "Deposit contract not set for this chain");
+
             depositContract.executeWithdrawal(recipientAddress, token, issuerNFT, nftId, amount);
             emit Withdrawn(issuerNFT, nftId, token, amount, targetChainId);
             withdrawalNonces[nftId]++;
@@ -380,30 +389,50 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         );
     }
     
-    function forcedWithdrawal(uint256 assembleId, bytes32 token, uint256[] memory amounts, uint32[] memory targetChainIds, bytes calldata _extraOptions, bytes32 recipientAddress) external payable {
+    function forcedWithdrawal(uint256 assembleId, bytes32 token, uint256[] memory amounts, uint32[] memory targetChainIds, bytes32 recipientAddress, bytes calldata _extraOptions) external payable {
         AssemblePositions storage assemble = _assemblePositions[assembleId];
-        
         ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
         require(!assemble.isComplete, "Assemble already completed");
         require(assemble.forWithdrawal, "Not a withdrawal assemble");
         require(assemble.executor == msg.sender, "Not the preset executor");
         require(nftContract.isManagerOrOwner(assemble.nftId, msg.sender), "Not authorized");
 
-        uint256[] memory chainList = nftContract.getChainList();
-        // Verify all chains have reported TODO only positive limit chains need to be reported
-        for (uint256 i = 0; i < chainList.length; i++) {
-            bytes32[] memory walletsWithPostitiveLimit = nftContract.getWalletsWithLimitChain(assemble.nftId, chainList[i]);
-            if (walletsWithPostitiveLimit.length > 0) {
-                require(assemble.chainReported[chainList[i]], "Not all chains have reported");
-            }
-        }
+        _verifyAllChainsReported(assembleId);
 
         // check if Ghost NFTs exist and their assemble is present. 
-        uint256 gNFTCount = nftContract.getGNFTCount(assemble.nftId);
-        uint256 gTotalBorrowed;
+        (uint256 totalBorrowed, uint256 totalCollateral) = _calculateTotatPositionsWithdrawal(assembleId, assemble.nftId);
+        // Calculate total available to withdraw
+        uint256 maxBorrow = (totalCollateral * LTV_RATIO / 100) + nftContract.getExtraLimit(assemble.nftId); // TODO @attackvector can this be misused? the extra limit I mean
+        
+        
+        if (assemble.totalAvailableToWithdraw == 0){
+            // console2.log("Max Borrow: %s | totalBorrowed: %s | totalCollateral: %s", maxBorrow, totalBorrowed, totalCollateral); // TODO remove after testing
+            assemble.totalAvailableToWithdraw = maxBorrow > totalBorrowed ? totalCollateral * (maxBorrow - totalBorrowed) / maxBorrow : 0; // denominated in ETH
+        }
+        
+        // Execute withdrawals
+        _executeWithdrawals(assembleId, token, amounts, targetChainIds, _extraOptions, recipientAddress);
+
+        if (assemble.totalAvailableToWithdraw == 0) {
+            assemble.isComplete = true;
+
+            if (assembleId == currentIncompleteWithdrawalAssembleIds[assemble.nftId]) {
+                currentIncompleteWithdrawalAssembleIds[assemble.nftId] = 0;
+            }
+        }
+    }
+
+    function _calculateTotatPositionsWithdrawal(uint256 assembleId, uint256 nftId) internal view returns (uint256 totalBorrowed, uint256 totalCollateral) {
+        ICoreNFTContract nftContract = ICoreNFTContract(_assemblePositions[nftId].issuerNFT);
+
+        uint256 gTotalBorrowed; 
         uint256 gTotalCollateral;
+        // Calculate total borrow and deposit positions
+
+        uint256 gNFTCount = nftContract.getGNFTCount(nftId);
+
         if ( gNFTCount > 0) {
-            uint256[] memory gNFTList = nftContract.getGNFTList(assemble.nftId);
+            uint256[] memory gNFTList = nftContract.getGNFTList(nftId);
             for (uint256 i = 0; i<gNFTList.length; i++){
                 uint256 gAssembleId = currentIncompleteWithdrawalAssembleIds[gNFTList[i]];
                 require(gAssembleId != 0, "GAssemble doesnt exist");
@@ -411,24 +440,17 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
                 gTotalBorrowed += gBorrowed;
                 gTotalCollateral += gCollateral;
             }
-            gTotalBorrowed += nftContract.getPWalletsTotalLimit(assemble.nftId);
+            gTotalBorrowed += nftContract.getPWalletsTotalLimit(nftId);
         }
 
-        // Calculate total borrow and deposit positions
-        (uint256 totalBorrowed, uint256 totalCollateral) = _calculateTotalPositions(assembleId);
+        (totalBorrowed, totalCollateral) = _calculateTotalPositions(assembleId);
         totalBorrowed += gTotalBorrowed;
         totalCollateral += gTotalCollateral;
-        // Calculate total available to withdraw
-        uint256 maxBorrow = (totalCollateral * LTV_RATIO / 100) + nftContract.getExtraLimit(assemble.nftId); // TODO @attackvector can this be misused? the extra limit I mean
-        
-        
-        if (assemble.totalAvailableToWithdraw == 0){
+    }
 
-            // console2.log("Max Borrow: %s | totalBorrowed: %s | totalCollateral: %s", maxBorrow, totalBorrowed, totalCollateral); // TODO remove after testing
-            assemble.totalAvailableToWithdraw = maxBorrow > totalBorrowed ? totalCollateral * (maxBorrow - totalBorrowed) / maxBorrow : 0; // denominated in ETH
-        }
+    function _executeWithdrawals(uint256 assembleId, bytes32 token, uint256[] memory amounts, uint32[] memory targetChainIds, bytes calldata _extraOptions, bytes32 recipientAddress) internal {
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
         
-        // Execute withdrawals
         for (uint256 i = 0; i < amounts.length; i++) {
             uint256 oracleMultiplier = token == assemble.wethAddresses[targetChainIds[i]] ? 1e18 : assemble.wstETHRatio;
 
@@ -438,14 +460,6 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
             _executeWithdrawal(recipientAddress, token, assemble.issuerNFT, assemble.nftId, amounts[i], targetChainIds[i], _extraOptions);
 
             emit ForcedWithdrawalExecuted(assembleId, token, amounts[i], targetChainIds[i], recipientAddress);
-        }
-
-        if (assemble.totalAvailableToWithdraw == 0) {
-            assemble.isComplete = true;
-
-            if (assembleId == currentIncompleteWithdrawalAssembleIds[assemble.nftId]) {
-                currentIncompleteWithdrawalAssembleIds[assemble.nftId] = 0;
-            }
         }
     }
 
@@ -470,6 +484,22 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         }
     }
 
+    function liquidationChallenge(uint256 assembleId, bytes32 token, uint32 targetChainId, bytes32 recipientAddress, uint256[] memory gAssembleIds, bytes calldata _extraOptions) external payable {
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        require(assemble.executor == msg.sender, "Not the present executor");
+
+        _verifyAllChainsReported(assembleId);
+
+        (uint256 lowestAssembleTimestamp, uint256 latestBorrowTimestamp) = _calculateTimestamps(assembleId, gAssembleIds);
+
+        _verifyLiquidationThreshold(assembleId, gAssembleIds);
+
+        _executeLiquidationChallenge(token, assemble.issuerNFT, assemble.nftId, lowestAssembleTimestamp, latestBorrowTimestamp, recipientAddress, targetChainId, _extraOptions);
+
+        emit LiquidationChallenged(token, assemble.nftId, targetChainId, msg.sender);
+
+    }
+
     function _verifyAllChainsReported(uint256 assembleId) internal view {
         AssemblePositions storage assemble = _assemblePositions[assembleId];
         ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
@@ -482,62 +512,81 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         }
     }
 
-    function liquidationChallenge(uint256 assembleId, bytes32 token, uint32 targetChainId, bytes32 recipientAddress, uint256[] memory gAssembleIds, bytes calldata _extraOptions) external payable {
+    function _verifyLiquidationThreshold(uint256 assembleId, uint256[] memory gAssembleIds) internal view {
         AssemblePositions storage assemble = _assemblePositions[assembleId];
-        require(assemble.executor == msg.sender, "Not the present executor");
         ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
 
-        _verifyAllChainsReported(assembleId);
+        (uint256 totalBorrowed, uint256 totalCollateral) = _calculateTotalPositionsWithGNFTs(assembleId, gAssembleIds);
 
-        uint256 lowestAssembleTimestamp;
-        uint256 latestBorrowTimestamp;
+        uint256 liqThreshold = (totalCollateral * LIQ_THRESHOLD / 100) + nftContract.getExtraLimit(assemble.nftId);
+        require(totalBorrowed < liqThreshold, "Borrow position is above the liquidation threshold");
+    }
 
+    function _calculateTotalPositionsWithGNFTs(uint256 assembleId, uint256[] memory gAssembleIds) internal view returns (uint256 totalBorrowed, uint256 totalCollateral) {
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
+        
+        (totalBorrowed, totalCollateral) = _calculateTotalPositions(assembleId);
+        
         uint256 gNFTCount = nftContract.getGNFTCount(assemble.nftId);
-        uint256 gTotalBorrowed;
-        uint256 gTotalCollateral;
-        if ( gNFTCount > 0) {
-            uint256[] memory gNFTList = nftContract.getGNFTList(assemble.nftId);
-            for (uint256 i = 0; i<gNFTList.length; i++){
-                for (uint256 j = 0; j<gAssembleIds.length; j++){
-                    AssemblePositions storage gAssemble = _assemblePositions[gAssembleIds[j]];
-                    if (gNFTList[i] == gAssemble.nftId){
-                        uint256 gAssembleId = currentIncompleteWithdrawalAssembleIds[gNFTList[i]];
-                        require(gAssembleId != 0, "GAssemble doesnt exist");
-                        (uint256 gBorrowed, uint256 gCollateral) = _calculateTotalPositions(gAssembleId);
-                        gTotalBorrowed += gBorrowed;
-                        gTotalCollateral += gCollateral;
-                        lowestAssembleTimestamp = (lowestAssembleTimestamp == 0 || gAssemble.timestamp < lowestAssembleTimestamp) ? gAssemble.timestamp : lowestAssembleTimestamp;
-                        latestBorrowTimestamp = gAssemble.latestBorrowTimestamp > latestBorrowTimestamp ? gAssemble.latestBorrowTimestamp : latestBorrowTimestamp;
-                    }
+        if (gNFTCount > 0) {
+            (uint256 gTotalBorrowed, uint256 gTotalCollateral) = _calculateGNFTPositions(assemble.nftId, gAssembleIds);
+            totalBorrowed += gTotalBorrowed;
+            totalCollateral += gTotalCollateral;
+        }
+    }
+
+    function _calculateGNFTPositions(uint256 nftId, uint256[] memory gAssembleIds) internal view returns (uint256 gTotalBorrowed, uint256 gTotalCollateral) {
+        ICoreNFTContract nftContract = ICoreNFTContract(_assemblePositions[nftId].issuerNFT);
+
+        console2.log("getching gnft 2");
+        uint256[] memory gNFTList = nftContract.getGNFTList(nftId);
+        console2.log("getching gnft2");
+        for (uint256 i = 0; i<gNFTList.length; i++){
+            for (uint256 j = 0; j<gAssembleIds.length; j++){
+                AssemblePositions storage gAssemble = _assemblePositions[gAssembleIds[j]];
+                if (gNFTList[i] == gAssemble.nftId){
+                    uint256 gAssembleId = currentIncompleteWithdrawalAssembleIds[gNFTList[i]];
+                    require(gAssembleId != 0, "GAssemble doesnt exist");
+                    (uint256 gBorrowed, uint256 gCollateral) = _calculateTotalPositions(gAssembleId);
+                    gTotalBorrowed += gBorrowed;
+                    gTotalCollateral += gCollateral;
                 }
             }
-            gTotalBorrowed += nftContract.getPWalletsTotalLimit(assemble.nftId);
         }
+        gTotalBorrowed += nftContract.getPWalletsTotalLimit(nftId);
+    }
 
-        // Calculate total borrow and deposit positions
-        (uint256 totalBorrowed, uint256 totalCollateral) = _calculateTotalPositions(assembleId);
+    function _calculateTimestamps(uint256 assembleId, uint256[] memory gAssembleIds) internal view returns (uint256 lowestAssembleTimestamp, uint256 latestBorrowTimestamp) {
+        AssemblePositions storage assemble = _assemblePositions[assembleId];
+        ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
+        console2.log(address(nftContract));
 
-        // Calculate total available to withdraw
-        uint256 liqThreshold = (totalCollateral * LIQ_THRESHOLD / 100) + nftContract.getExtraLimit(assemble.nftId); // TODO @attackvector can this be misused? the extra limit I mean
-        
-        require(totalBorrowed < liqThreshold, "Borrow position is above the liquidation threshold");
+        lowestAssembleTimestamp = assemble.timestamp;
+        latestBorrowTimestamp = assemble.latestBorrowTimestamp;
 
-        lowestAssembleTimestamp = (lowestAssembleTimestamp == 0 || assemble.timestamp < lowestAssembleTimestamp) ? assemble.timestamp : lowestAssembleTimestamp;
-        latestBorrowTimestamp = assemble.latestBorrowTimestamp > latestBorrowTimestamp ? assemble.latestBorrowTimestamp : latestBorrowTimestamp;
+        uint256[] memory gNFTList = nftContract.getGNFTList(assemble.nftId);
+        for (uint256 i = 0; i < gNFTList.length; i++) {
+            for (uint256 j = 0; j < gAssembleIds.length; j++) {
+                AssemblePositions storage gAssemble = _assemblePositions[gAssembleIds[j]];
+                if (gNFTList[i] == gAssemble.nftId) {
+                    lowestAssembleTimestamp = gAssemble.timestamp < lowestAssembleTimestamp ? gAssemble.timestamp : lowestAssembleTimestamp;
+                    latestBorrowTimestamp = gAssemble.latestBorrowTimestamp > latestBorrowTimestamp ? gAssemble.latestBorrowTimestamp : latestBorrowTimestamp;
+                }
+            }
+        }
+    }
 
-        // console2.log("Total borrowed: %s | Liq Threshold: %s", totalBorrowed, liqThreshold); // TODO remove after testing
 
+    function _executeLiquidationChallenge(bytes32 token, address issuerNFT, uint256 nftId, uint256 lowestAssembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipientAddress, uint32 targetChainId, bytes calldata _extraOptions) internal {
         if (targetChainId == adminChainId) {
             IDepositContract depositContract = depositContracts[targetChainId];
             require(address(depositContract) != address(0), "Deposit contract not set for this chain");
-            depositContract.onChainLiqChallenge(token, addressToBytes32(assemble.issuerNFT), assemble.nftId, lowestAssembleTimestamp, latestBorrowTimestamp, recipientAddress);
-            challengeNonces[assemble.nftId]++;
+            depositContract.onChainLiqChallenge(addressToBytes32(issuerNFT), nftId, token, lowestAssembleTimestamp, latestBorrowTimestamp, recipientAddress);
+            challengeNonces[nftId]++;
         } else {
-            _initiateCrossChainChallenge(token, assemble.issuerNFT, assemble.nftId, lowestAssembleTimestamp, latestBorrowTimestamp, recipientAddress, targetChainId, _extraOptions);
+            _initiateCrossChainChallenge(token, issuerNFT, nftId, lowestAssembleTimestamp, latestBorrowTimestamp, recipientAddress, targetChainId, _extraOptions);
         }
-
-        emit LiquidationChallenged(token, assemble.nftId, targetChainId, msg.sender);
-
     }
 
     function _initiateCrossChainChallenge(bytes32 token, address issuerNFT, uint256 nftId, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipientAddress, uint32 targetChainId, bytes calldata _extraOptions) internal {

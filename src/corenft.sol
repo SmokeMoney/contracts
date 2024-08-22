@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-// import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 contract CoreNFTContract is ERC721, ERC721Enumerable, Ownable {
     using ECDSA for bytes32;
@@ -207,7 +207,9 @@ contract CoreNFTContract is ERC721, ERC721Enumerable, Ownable {
         require(chainIds.length == newLimits.length, "Limits leagth should match the chain List length");
         require(nonce == lowerLimitNonces[nftId], "Invalid limit change nonce");
 
-        bytes32 messageHash = keccak256(abi.encode(nftId, wallet, chainIds, newLimits, timestamp, nonce));
+        bytes32 messageHash = keccak256(abi.encodePacked(nftId, wallet, abi.encode(chainIds), abi.encode(newLimits), timestamp, nonce));
+        // bytes32 messageHash = keccak256(abi.encode(nftId, wallet, chainIds, newLimits, timestamp, nonce));
+        console2.logBytes32(messageHash);
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         require(ethSignedMessageHash.recover(signature) == issuer, "Invalid signature");
 
@@ -362,7 +364,7 @@ contract CoreNFTContract is ERC721, ERC721Enumerable, Ownable {
         return _accounts[nftId].walletList;
     }
 
-    function gNFTList(uint256 nftId) external view returns (uint256[] memory) {
+    function getGNFTList(uint256 nftId) external view returns (uint256[] memory) {
         uint256 count = _accounts[nftId].gNFTCount;
         uint256[] memory list = new uint256[](count);
         for (uint256 i = 0; i < count; i++) {
