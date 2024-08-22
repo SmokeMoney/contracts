@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
@@ -35,7 +36,7 @@ interface IWstETHOracleReceiver {
     function getLastUpdatedRatio() external view returns (uint256, uint256);
 }
 
-contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
+contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
     using ECDSA for bytes32;
 
     struct AssemblePositions {
@@ -85,6 +86,10 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
         bytes32 recipientAddress;
     }
 
+    bytes32 private constant WITHDRAW_TYPEHASH = keccak256(
+        "Withdraw(address issuerNFT,bytes32 token,uint256 nftId,uint256 amount,uint32 targetChainId,uint256 timestamp,uint256 nonce,bool primary,bytes32 recipientAddress)"
+    );
+
     ICoreNFTContract public coreNFTContract;
     IWstETHOracleReceiver public wstETHOracle;
     mapping(address => address) public issuers; // issuerNFT -> issuerAddress
@@ -116,6 +121,7 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
     constructor(address _coreNFTContract, address _endpoint, address _wstETHOracleContract, address _owner, uint32 _adminChainId) 
         OApp(_endpoint, _owner)
         Ownable(_owner)
+        EIP712("AccountOperations", "1")
     {
         coreNFTContract = ICoreNFTContract(_coreNFTContract);
         adminChainId = _adminChainId;
@@ -169,19 +175,23 @@ contract OperationsContract is Ownable, OApp, OAppOptionsType3 {
     }
 
     function _validateWithdrawSignature(WithdrawParams memory params, bytes memory signature) internal view {
-        bytes32 messageHash = keccak256(abi.encodePacked(
-            msg.sender, 
-            params.issuerNFT, 
-            params.token, 
-            params.nftId, 
-            params.amount, 
-            params.targetChainId, 
-            params.timestamp, 
-            params.nonce, 
-            params.primary
-        ));
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        require(ethSignedMessageHash.recover(signature) == issuers[params.issuerNFT], "Invalid withdraw signature");
+        
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            WITHDRAW_TYPEHASH,
+            params.issuerNFT,
+            params.token,
+            params.nftId,
+            params.amount,
+            params.targetChainId,
+            params.timestamp,
+            params.nonce,
+            params.primary,
+            params.recipientAddress
+        )));
+        console2.logBytes32(digest);
+
+        address signer = ECDSA.recover(digest, signature);
+        require(signer == issuers[params.issuerNFT], "Invalid withdraw signature");
     }
 
     function _executeWithdrawal(bytes32 recipientAddress, bytes32 token, address issuerNFT, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {

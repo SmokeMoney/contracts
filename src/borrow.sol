@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IWETH {
@@ -14,7 +15,7 @@ interface IWETH {
     function transfer(address dst, uint wad) external returns (bool);
 }
 
-contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
+contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
 
@@ -43,7 +44,8 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         uint256 poolDeposited; 
         mapping(uint256 => InterestRateChange[]) interestRateHistory;
         mapping(uint256 => mapping(address => BorrowPosition)) borrowPositions; // nftId => wallet => BorrowPosition  
-        mapping(uint256 => uint256) borrowNonces; // nftId => nonce  
+        mapping(uint256 => uint256) borrowNonces; // nftId => nonce
+        mapping(uint256 => uint256) lastReportedPosition; // nftId => timestamp
         mapping(uint256 => address[]) borrowers; // nftId => array of borrower addresses 
     }
 
@@ -59,6 +61,10 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         address recipient;
     }
     
+    bytes32 private constant BORROW_TYPEHASH = keccak256(
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+    );
+
     IWETH public immutable WETH;
     
     mapping(address => IssuerData) public issuers; // issuer NFT Address -> issuerData
@@ -83,7 +89,7 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
     event IssuerRemoved(address issuerNFT);
     event FeeRecipientChanged(address indexed issuerNFT, address newFeeRecipient);
 
-    constructor(address _weth, uint256 _chainId) Ownable(msg.sender) {
+    constructor(address _weth, uint256 _chainId) Ownable(msg.sender) EIP712("SmokeSpendingContract", "1") {
         WETH = IWETH(_weth);
         chainId = _chainId;
     }
@@ -143,11 +149,21 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         require(issuerData.issuerAddress != address(0), "Invalid issuer");
         require(issuerData.poolDeposited >= amount, "Insufficient issuer pool");
 
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, chainId));
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        require(ethSignedMessageHash.recover(signature) == issuerData.issuerAddress, "Invalid signature");
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            BORROW_TYPEHASH,
+            msg.sender,
+            issuerNFT,
+            nftId,
+            amount,
+            timestamp,
+            signatureValidity,
+            nonce
+        )));
+        address signer = ECDSA.recover(digest, signature);
+        require(signer == issuerData.issuerAddress, "Invalid signature");
 
-        _executeBorrow(issuerNFT, nftId, msg.sender, amount, weth);
+        // _executeBorrow(issuerNFT, nftId, msg.sender, amount, weth);
+        _executeBorrowAndSend(issuerNFT, nftId, msg.sender, amount, msg.sender, weth);
         issuerData.borrowNonces[nftId]++;
     }
 
@@ -183,21 +199,20 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         bytes memory userSignature,
         bytes memory issuerSignature
     ) internal view returns (address) {
-        bytes32 messageHash = keccak256(abi.encodePacked(
+
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            BORROW_TYPEHASH,
             params.recipient,
             params.issuerNFT,
             params.nftId,
             params.amount,
             params.timestamp,
             params.signatureValidity,
-            params.nonce,
-            chainId
-        ));
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        
-        address signer = ethSignedMessageHash.recover(userSignature);
-        require(ethSignedMessageHash.recover(issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid issuer signature");
-        
+            params.nonce
+        )));
+        address signer = ECDSA.recover(digest, userSignature);
+        require(ECDSA.recover(digest, issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid signature");
+
         return signer;
     }
 
@@ -271,7 +286,7 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
 
-        _executeBorrow(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, false);
+        _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
 
         emit AutogasTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
     }
@@ -282,7 +297,7 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
         require(issuerData.gasPriceThreshold <= tx.gasprice, "Gas price is below threshold");
 
-        _executeBorrow(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, false);
+        _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
         uint256 gasUsed = gasStart - gasleft();
         uint256 paymentAmount = gasUsed * tx.gasprice * 2;
         _executeBorrowAndSend(issuerNFT, nftId, wallet, paymentAmount, msg.sender, false);
@@ -418,10 +433,6 @@ contract MultiIssuerLendingContract is ReentrancyGuard, Ownable {
         require(success, "ETH transfer failed");
         issuers[issuerNFT].poolDeposited -= amount;
         emit PoolWithdrawn(issuerNFT, amount);
-    }
-
-    function getEthSignedMessageHash(bytes32 _messageHash) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash));
     }
     
     function scheduleInterestRateChange(address issuerNFT, uint256 newRate) external onlyIssuer(issuerNFT) {
