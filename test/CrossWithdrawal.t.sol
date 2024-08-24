@@ -80,7 +80,7 @@ contract DepositTest is Setup {
             address(weth),
             tokenId,
             0.1 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
+            accountOps.withdrawalNonces(tokenId)
         );
 
         MessagingFee memory sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
@@ -113,7 +113,7 @@ contract DepositTest is Setup {
             address(weth),
             tokenId,
             0.1 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
+            accountOps.withdrawalNonces(tokenId)
         );
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);

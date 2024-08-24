@@ -23,6 +23,21 @@ contract DepositTest is Setup {
 
     AdminDepositContract public depositCross;
 
+    bytes32 private constant SET_LOWER_LIMIT_TYPEHASH = keccak256(
+        "SetLowerLimit(uint256 nftId,bytes32 wallet,uint256 chainId,uint256 newLimit,uint256 timestamp,uint256 nonce)"
+    );
+
+    bytes32 private constant SET_LOWER_BULK_LIMITS_TYPEHASH = keccak256(
+        "SetLowerBulkLimits(uint256 nftId,bytes32 wallet,uint256[] chainIds,uint256[] newLimits,uint256 timestamp,uint256 nonce)"
+    );
+
+    bytes32 private constant RESET_WALLET_CHAIN_LIMITS_TYPEHASH = keccak256(
+        "ResetWalletChainLimits(uint256 nftId,bytes32 wallet,uint256 timestamp,uint256 nonce)"
+    );
+
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
 
     function setUp() public virtual override {
         super.setUp();
@@ -67,13 +82,28 @@ contract DepositTest is Setup {
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(issuer1);
         
-        bytes32 digest = keccak256(abi.encode(tokenId, addressToBytes32(user), abi.encode(chainIds), abi.encode(amounts), timestamp, uint256(0)));
-        bytes32 hash = siggen.getEthSignedMessageHash(digest);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, hash);
-        bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SET_LOWER_BULK_LIMITS_TYPEHASH,
+                tokenId,
+                addressToBytes32(user),
+                keccak256(abi.encodePacked(chainIds)),
+                keccak256(abi.encodePacked(amounts)),
+                timestamp,
+                uint256(0)
+            )
+        );
+
+        bytes memory signature = getSignature(structHash);
+
+        // bytes32 digest = keccak256(abi.encode(tokenId, addressToBytes32(user), abi.encode(chainIds), abi.encode(amounts), timestamp, uint256(0)));
+        // bytes32 hash = siggen.getEthSignedMessageHash(digest);
+        // (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, hash);
+        // bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
         vm.stopPrank();
 
-        console.logBytes32(digest);
+        // console.logBytes32(digest);
         vm.startPrank(user);
         issuer1NftContract.setLowerBulkLimits(tokenId, addressToBytes32(user), chainIds, amounts, timestamp, 0, signature);
         console.log("set lower limits at", timestamp);
@@ -85,13 +115,21 @@ contract DepositTest is Setup {
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
         uint256 newlimit = 0.1 * 10**18;
-        vm.startPrank(issuer1);
-        digest = keccak256(abi.encodePacked(tokenId, addressToBytes32(user), uint256(3), newlimit, timestamp, uint256(1)));
-        hash = siggen.getEthSignedMessageHash(digest);
-        (v, r, s) = vm.sign(issuer1Pk, hash);
-        signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
-        vm.stopPrank();
-        
+
+
+        structHash = keccak256(
+            abi.encode(
+                SET_LOWER_LIMIT_TYPEHASH,
+                tokenId,
+                addressToBytes32(user),
+                uint256(3),
+                newlimit,
+                timestamp,
+                uint256(1)
+            )
+        );
+
+        signature = getSignature(structHash);
         
         vm.startPrank(user);
         issuer1NftContract.setLowerLimit(tokenId, addressToBytes32(user), 3, newlimit, timestamp, 1, signature);
@@ -113,12 +151,17 @@ contract DepositTest is Setup {
         chainIds2[3] = dEid;
 
 
-        vm.startPrank(issuer1);
-        digest = keccak256(abi.encodePacked(tokenId, user, timestamp, uint256(2)));
-        hash = siggen.getEthSignedMessageHash(digest);
-        (v, r, s) = vm.sign(issuer1Pk, hash);
-        signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
-        vm.stopPrank();
+        structHash = keccak256(
+            abi.encode(
+                RESET_WALLET_CHAIN_LIMITS_TYPEHASH,
+                tokenId,
+                addressToBytes32(user),
+                timestamp,
+                uint256(2)
+            )
+        );
+
+        signature = getSignature(structHash);
 
 
         vm.startPrank(user2);
@@ -126,8 +169,24 @@ contract DepositTest is Setup {
         vm.stopPrank();
     }
 
-    function testDisapproveChain() public {
+    function getSignature(bytes32 structHash) private view returns (bytes memory){
 
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("CoreNFTContract")),
+                keccak256(bytes("1")),
+                31337,
+                address(issuer1NftContract)
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function testMaxMint() public {

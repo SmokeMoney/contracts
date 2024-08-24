@@ -65,6 +65,7 @@ contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
         uint256 wstETHDepositAmount;
         bytes32 wethAddress;
         bytes32 wstETHAddress;
+        uint256 reportPositionTimestamp;
     }
     
     struct WalletData {
@@ -331,6 +332,7 @@ contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
         require(assemble.issuerNFT == assembleData.issuerNFT, "Invalid Issuer ID");
         require(assemble.nftId == assembleData.nftId, "Invalid NFT ID");
         require(!assemble.chainReported[srcChainId], "Chain already reported");
+        require(assemble.timestamp + 20 minutes < assembleData.reportPositionTimestamp, "Reported too soon");
     
         ICoreNFTContract nftContract = ICoreNFTContract(assemble.issuerNFT);
 
@@ -378,7 +380,14 @@ contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
         return false;
     }
     
+
     function _decodeAssemblePayload(bytes memory _payload) private pure returns (AssembleData memory, WalletData memory) {
+        (AssembleData memory assembleData, uint256 latestBorrowTimestamp) = _decodeAssembleDataPart(_payload);
+        WalletData memory walletData = _decodeWalletDataPart(_payload, latestBorrowTimestamp);
+        return (assembleData, walletData);
+    }
+
+    function _decodeAssembleDataPart(bytes memory _payload) private pure returns (AssembleData memory, uint256) {
         (
             uint256 assembleId,
             bytes32 issuerNFT,
@@ -388,15 +397,100 @@ contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
             bytes32 wethAddress,
             bytes32 wstETHAddress,
             uint256 latestBorrowTimestamp,
-            bytes32[] memory wallets,
-            uint256[] memory borrowAmounts,
-            uint256[] memory interestAmounts
-        ) = abi.decode(_payload, (uint256, bytes32, uint256, uint256, uint256, bytes32, bytes32, uint256, bytes32[], uint256[], uint256[]));
-    
+            uint256 reportPositionTimestamp
+        ) = abi.decode(_payload, (uint256, bytes32, uint256, uint256, uint256, bytes32, bytes32, uint256, uint256));
+
         return (
-            AssembleData(assembleId, bytes32ToAddress(issuerNFT), nftId, depositAmount, wstETHDepositAmount, wethAddress, wstETHAddress),
-            WalletData(wallets, borrowAmounts, interestAmounts, latestBorrowTimestamp)
+            AssembleData(
+                assembleId,
+                bytes32ToAddress(issuerNFT),
+                nftId,
+                depositAmount,
+                wstETHDepositAmount,
+                wethAddress,
+                wstETHAddress,
+                reportPositionTimestamp
+            ),
+            latestBorrowTimestamp
         );
+    }
+
+    function _decodeWalletDataPart(bytes memory _payload, uint256 latestBorrowTimestamp) private pure returns (WalletData memory) {
+        console2.logBytes(_payload);
+
+        uint256 offset = 9 * 32; // Skip the first 9 fixed-size elements
+
+        (uint256 walletsOffset, uint256 borrowAmountsOffset, uint256 interestAmountsOffset) = _readArrayOffsets(_payload, offset);
+
+        bytes32[] memory wallets = _readBytes32Array(_payload, walletsOffset);
+        uint256[] memory borrowAmounts = _readUint256Array(_payload, borrowAmountsOffset);
+        uint256[] memory interestAmounts = _readUint256Array(_payload, interestAmountsOffset);
+
+        console2.log("Decoded arrays:");
+        console2.log("Wallets length:", wallets.length);
+        console2.log("BorrowAmounts length:", borrowAmounts.length);
+        console2.log("InterestAmounts length:", interestAmounts.length);
+
+        return WalletData(wallets, borrowAmounts, interestAmounts, latestBorrowTimestamp);
+    }
+
+    function _readArrayOffsets(bytes memory _payload, uint256 startOffset) private pure returns (uint256, uint256, uint256) {
+        uint256 walletsOffset = uint256(bytes32(_slice(_payload, startOffset, 32)));
+        uint256 borrowAmountsOffset = uint256(bytes32(_slice(_payload, startOffset + 32, 32)));
+        uint256 interestAmountsOffset = uint256(bytes32(_slice(_payload, startOffset + 64, 32)));
+        return (walletsOffset, borrowAmountsOffset, interestAmountsOffset);
+    }
+
+    function _readBytes32Array(bytes memory _payload, uint256 offset) private pure returns (bytes32[] memory) {
+        uint256 length = uint256(bytes32(_slice(_payload, offset, 32)));
+        bytes32[] memory result = new bytes32[](length);
+        for (uint256 i = 0; i < length; i++) {
+            result[i] = bytes32(_slice(_payload, offset + 32 + (i * 32), 32));
+        }
+        return result;
+    }
+
+    function _readUint256Array(bytes memory _payload, uint256 offset) private pure returns (uint256[] memory) {
+        uint256 length = uint256(bytes32(_slice(_payload, offset, 32)));
+        uint256[] memory result = new uint256[](length);
+        for (uint256 i = 0; i < length; i++) {
+            result[i] = uint256(bytes32(_slice(_payload, offset + 32 + (i * 32), 32)));
+        }
+        return result;
+    }
+
+    function _slice(bytes memory _bytes, uint256 _start, uint256 _length) private pure returns (bytes memory) {
+        require(_length + 31 >= _length, "slice_overflow");
+        require(_start + _length <= _bytes.length, "slice_outOfBounds");
+
+        bytes memory tempBytes;
+        assembly {
+            switch iszero(_length)
+            case 0 {
+                tempBytes := mload(0x40)
+                let lengthmod := and(_length, 31)
+                let mc := add(add(tempBytes, lengthmod), mul(0x20, iszero(lengthmod)))
+                let end := add(mc, _length)
+
+                for {
+                    let cc := add(add(add(_bytes, lengthmod), mul(0x20, iszero(lengthmod))), _start)
+                } lt(mc, end) {
+                    mc := add(mc, 0x20)
+                    cc := add(cc, 0x20)
+                } {
+                    mstore(mc, mload(cc))
+                }
+
+                mstore(tempBytes, _length)
+                mstore(0x40, and(add(mc, 31), not(31)))
+            }
+            default {
+                tempBytes := mload(0x40)
+                mstore(tempBytes, 0)
+                mstore(0x40, add(tempBytes, 0x20))
+            }
+        }
+        return tempBytes;
     }
     
     function forcedWithdrawal(uint256 assembleId, bytes32 token, uint256[] memory amounts, uint32[] memory targetChainIds, bytes32 recipientAddress, bytes calldata _extraOptions) external payable {

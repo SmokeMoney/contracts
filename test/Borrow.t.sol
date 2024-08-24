@@ -47,12 +47,11 @@ contract BorrowTest is TestHelperOz5 {
 
         super.setUp();
         setUpEndpoints(2, LibraryType.UltraLightNode);
-        vm.startPrank(owner);
+        vm.startPrank(issuer);
         nftContract = new CoreNFTContract(
             "AutoGas",
             "OG",
             issuer,
-            owner,
             0.02 * 1e18,
             10
         );
@@ -466,26 +465,11 @@ contract BorrowTest is TestHelperOz5 {
 
     function testBorrowGasless() public {
         vm.warp(1720962281);
-        console.log(
-            lendingcontract.getBorrowPosition(
-                address(nftContract),
-                tokenId,
-                user2
-            )
-        );
         uint256 timestamp = vm.getBlockTimestamp();
         // Mint an NFT for the user
         vm.startPrank(issuer);
         neighborhoodBorrowWithSig(lendingcontract, user2, address(nftContract), tokenId, 25 * 10 ** 18, timestamp, signatureValidity, 1, false, true);
         vm.stopPrank();
-        console.log(
-            lendingcontract.getBorrowPosition(
-                address(nftContract),
-                tokenId,
-                user2
-            )
-        );
-        console.log(address(user2));
     }
 
     function testRepay() public {

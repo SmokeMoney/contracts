@@ -28,23 +28,91 @@ contract DepositTest is Setup {
 
     function setUp() public override {
         super.setUp();
-        super.setupRateLimits();
+        // super.setupRateLimits();
         // (issuer1, issuer1Pk) = makeAddrAndKey("issuer");
-
     }
     
-    function neigherhoodBorrow(SmokeSpendingContract lendingContract, address user2, address issuerNFT, uint256 nftId, uint256 chainId, uint256 amount, uint256 timestamp, uint256 signatureValidity, uint256 nonce, bool weth) internal {
-        
-        bytes32 digest = keccak256(abi.encodePacked(user2, issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, chainId));
-        bytes memory signature = getIssuersSig(digest); // note the order here is different from line above.
-        
-        lendingContract.borrow(issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, weth, signature);
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+
+    bytes32 public constant BORROW_TYPEHASH = keccak256(
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+    );
+
+    function neighborhoodBorrow(
+        SmokeSpendingContract lendingContract,
+        address userAddress,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 signatureValidityVar,
+        uint256 nonce,
+        bool wethBool
+    ) public {
+        bytes memory signature = getIssuersSig(
+            lendingContract,
+            userAddress,
+            issuerNFT,
+            nftId,
+            amount,
+            timestamp,
+            signatureValidityVar,
+            nonce
+        );
+
+        lendingContract.borrow(
+            issuerNFT,
+            nftId,
+            amount,
+            timestamp,
+            signatureValidityVar,
+            nonce,
+            wethBool,
+            signature
+        );
     }
 
-    function getIssuersSig(bytes32 digest) private view returns (bytes memory signature) {
-        bytes32 hash = siggen.getEthSignedMessageHash(digest);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, hash);
-        signature = abi.encodePacked(r, s, v);
+    function getIssuersSig(
+        SmokeSpendingContract lendingContract,
+        address borrower,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 signatureValidityVar,
+        uint256 nonce
+    ) private view returns (bytes memory) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("SmokeSpendingContract")),
+                keccak256(bytes("1")),
+                31337,
+                address(lendingContract)
+            )
+        );
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                BORROW_TYPEHASH,
+                borrower,
+                issuerNFT,
+                nftId,
+                amount,
+                timestamp,
+                signatureValidityVar,
+                nonce
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function testForcedWithdrawal() public {
@@ -56,14 +124,14 @@ contract DepositTest is Setup {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(user2);
-        neigherhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(bEid), uint256(0.5 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(0.5 * 10**18), timestamp, signatureValidity, uint256(0), false);
         vm.stopPrank();
 
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
         
         vm.startPrank(user);
-        neigherhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(cEid), uint256(0.1 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(0.1 * 10**18), timestamp, signatureValidity, uint256(0), false);
         vm.stopPrank();
 
 
@@ -95,6 +163,7 @@ contract DepositTest is Setup {
         // vm.expectEmit();
         // emit AdminDepositContract.PositionsReported(assembleId, tokenId);
 
+        vm.warp(1721063381);
         depositCrossB.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
         vm.stopPrank();
         verifyPackets(aEid, addressToBytes32(address(accountOps)));
@@ -123,7 +192,7 @@ contract DepositTest is Setup {
         accountOps.getOnChainReport(assembleId, issuer1NftAddress, tokenId, walletsReqChain, new bytes(0));
         payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
         
-        assertEq(accountOps.getAssembleChainsReported(assembleId), 4);
+        assertEq(accountOps.getReportedAssembleChains(assembleId), 4);
 
 
         uint256[] memory withdrawAmounts = new uint256[](2);
@@ -140,7 +209,7 @@ contract DepositTest is Setup {
             address(weth),
             tokenId,
             0.9 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
+            accountOps.withdrawalNonces(tokenId)
         );
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
@@ -171,7 +240,7 @@ contract DepositTest is Setup {
             address(weth),
             tokenId,
             1 * 10**18,
-            accountOps.getWithdrawNonce(tokenId)
+            accountOps.withdrawalNonces(tokenId)
         );
 
         sendFee = accountOps.quote(dEid, SEND, payload, extraOptions, false);
@@ -197,8 +266,8 @@ contract DepositTest is Setup {
             tokenId2, 
             depositAmount, 
             wstETHDepositAmount, 
-            addressToBytes32(address(0)), //wethAddress
             addressToBytes32(address(0)), // wstETHaddress
+            depositAmount, // random uint256 for testing
             depositAmount, // random uint256 for testing
             walletsReqChain,
             borrowAmounts,

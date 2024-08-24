@@ -91,7 +91,7 @@ contract Setup is TestHelperOz5 {
         wstETH = new MockERC20();
         wstETH.transfer(user, 1000 * 10**18);
         weth = new WETH();
-        issuer1NftContract = new CoreNFTContract("AutoGas", "OG", issuer1, issuer1, 0.02 * 1e18, 10);
+        issuer1NftContract = new CoreNFTContract("AutoGas", "OG", issuer1, 0.02 * 1e18, 10);
         vm.stopPrank();
 
 

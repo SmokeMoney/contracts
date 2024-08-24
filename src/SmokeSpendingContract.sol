@@ -45,7 +45,6 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         mapping(uint256 => InterestRateChange[]) interestRateHistory;
         mapping(uint256 => mapping(address => BorrowPosition)) borrowPositions; // nftId => wallet => BorrowPosition  
         mapping(uint256 => uint256) borrowNonces; // nftId => nonce
-        mapping(uint256 => uint256) lastReportedPosition; // nftId => timestamp
         mapping(uint256 => address[]) borrowers; // nftId => array of borrower addresses 
     }
 
@@ -72,6 +71,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     uint256 public smokeFees;
     uint256 public constant SECONDS_PER_YEAR = 31536000;
     uint256 public constant SIGNATURE_VALIDITY = 1 minutes;
+    uint256 public constant REPORTED_POS_BLOCK = 20 minutes;
     uint256 public immutable chainId;
 
     event Borrowed(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
@@ -214,34 +214,6 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         require(ECDSA.recover(digest, issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid signature");
 
         return signer;
-    }
-
-    function _executeBorrow(address issuerNFT, uint256 nftId, address wallet, uint256 amount, bool weth) internal {
-        IssuerData storage issuerData = issuers[issuerNFT];
-        BorrowPosition storage borrowPosition = issuerData.borrowPositions[nftId][wallet];
-        
-        uint256 borrowInterest = calculateCompoundInterest(issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate);
-        
-        if (!isBorrower(issuerNFT, nftId, wallet)) {
-            issuerData.borrowers[nftId].push(wallet);
-        }
-
-        if(weth){
-            WETH.transfer(wallet, amount);
-        }
-        else {
-            WETH.withdraw(amount);
-            (bool success, ) = wallet.call{value: amount}("");
-            require(success, "ETH transfer failed");
-        }
-
-        borrowPosition.amount += borrowInterest + amount + issuerData.borrowFees + smokeFees;
-        borrowPosition.timestamp = block.timestamp;
-        issuerData.smokeFeesCollected += smokeFees;
-
-        issuerData.poolDeposited -= amount;
-
-        emit Borrowed(issuerNFT, nftId, wallet, amount);
     }
 
     function _executeBorrowAndSend(address issuerNFT, uint256 nftId, address signer, uint256 amount, address recipient, bool weth) internal {

@@ -23,20 +23,14 @@ contract DepositTest is Setup {
     uint16 SEND = 1;
     uint16 SEND_ABA = 2;
 
-    
-    function neigherhoodBorrow(SmokeSpendingContract lendingContract, address user2, address issuerNFT, uint256 nftId, uint256 chainId, uint256 amount, uint256 timestamp, uint256 signatureValidity, uint256 nonce, bool weth) internal {
-        
-        bytes32 digest = keccak256(abi.encodePacked(user2, issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, chainId));
-        bytes memory signature = getIssuersSig(digest); // note the order here is different from line above.
-        
-        lendingContract.borrow(issuerNFT, nftId, amount, timestamp, signatureValidity, nonce, weth, signature);
-    }
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
 
-    function getIssuersSig(bytes32 digest) private view returns (bytes memory signature) {
-        bytes32 hash = siggen.getEthSignedMessageHash(digest);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, hash);
-        signature = abi.encodePacked(r, s, v);
-    }
+    bytes32 public constant BORROW_TYPEHASH = keccak256(
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+    );
+
 
     function setUp() public virtual override {
         super.setUp();
@@ -46,20 +40,19 @@ contract DepositTest is Setup {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(user2);
-        neigherhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(bEid), uint256(2.8 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(2.8 * 10**18), timestamp, signatureValidity, uint256(0), false);
         vm.stopPrank();
 
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
         
         vm.startPrank(user);
-        neigherhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(cEid), uint256(0.19 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(0.19 * 10**18), timestamp, signatureValidity, uint256(0), false);
         vm.stopPrank();
 
         vm.warp(1720963381);
-        console.log("User's borrow pos on chain 3: ", lendingcontractC.getBorrowPosition(issuer1NftAddress, tokenId, user));
-        console.log("User's borrow pos on chain 2: ", lendingcontractB.getBorrowPosition(issuer1NftAddress, tokenId, user2));
-        
+        // console.log("User's borrow pos on chain 3: ", lendingcontractC.getBorrowPosition(issuer1NftAddress, tokenId, user));
+        // console.log("User's borrow pos on chain 2: ", lendingcontractB.getBorrowPosition(issuer1NftAddress, tokenId, user2));
     }
 
     function testOptimisticLiquidation() public {
@@ -68,10 +61,11 @@ contract DepositTest is Setup {
         vm.startPrank(issuer1);
         weth.deposit{value:0.1 * 1e18}();
         weth.approve(address(depositCrossB), 0.1 * 1e18);
-        depositCrossB.lockForLiquidation(issuer1NftAddress, tokenId, address(weth), 1e18);
+        depositCrossB.lockForLiquidation(issuer1NftAddress, tokenId, address(weth));
         vm.warp(1721073281);
-        depositCrossB.executeLiquidation(issuer1NftAddress, tokenId, address(weth), 1e18);
+        depositCrossB.executeLiquidation(issuer1NftAddress, tokenId, address(weth));
         vm.stopPrank();
+        
     }
 
     function testLiquidationChallenge() public {
@@ -79,11 +73,18 @@ contract DepositTest is Setup {
         vm.warp(1724984381);
         vm.startPrank(issuer1);
         weth.deposit{value:1 * 1e18}();
-        weth.approve(address(depositCrossB), 0.1 * 1e18);
-        weth.approve(address(depositLocal), 0.1 * 1e18);
-        depositCrossB.lockForLiquidation(issuer1NftAddress, tokenId, address(weth), 1e18);
-        depositLocal.lockForLiquidation(issuer1NftAddress, tokenId, address(weth), 1e18);
+        weth.approve(address(depositCrossB), 1 * 1e18);
+        weth.approve(address(depositLocal), 2 * 1e18);
+        depositCrossB.lockForLiquidation(issuer1NftAddress, tokenId, address(weth));
+        depositLocal.lockForLiquidation(issuer1NftAddress, tokenId, address(weth));
         vm.stopPrank();
+
+        console.log("Deposits on chain A (WETH)", depositLocal.getDepositAmount(issuer1NftAddress, tokenId, address(weth)) * 1000 / 1e18);
+        console.log("Deposits on chain B (WETH)", depositCrossB.getDepositAmount(issuer1NftAddress, tokenId, address(weth)) * 1000 / 1e18);
+        console.log("Challenger Balance: ", userB.balance * 1000 / 1e18);
+        console.log("Challenger Balance: ", weth.balanceOf(userB) * 1000 / 1e18);
+        console.log("Issuer Balance: ", issuer1.balance * 1000 / 1e18);
+        console.log("Issuer Balance: ", weth.balanceOf(issuer1) * 1000 / 1e18);
 
         vm.prank(address(l2_messenger));
         wstETHOracle.setWstETHRatio(1.175*1e18);
@@ -102,12 +103,22 @@ contract DepositTest is Setup {
 
         bytes32[] memory walletsReqChain = issuer1NftContract.getWalletsWithLimitChain(tokenId, bEid);
         bytes memory payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
-        console.logBytes(payload);
-        console.logBytes(extraOptions);
+        // console.logBytes(payload);
+        // console.logBytes(extraOptions);
 
         // FIRST report
         MessagingFee memory sendFee = depositCrossB.quote(aEid, SEND, payload, extraOptions, false);
 
+        vm.startPrank(userB);
+        weth.deposit{value:0.3*1e18}();
+        weth.approve(address(depositLocal), 0.2 * 1e18);
+        weth.approve(address(depositCrossB), 0.1 * 1e18);
+
+        depositLocal.quickChallenge(issuer1NftAddress, tokenId, address(weth));
+        depositCrossB.quickChallenge(issuer1NftAddress, tokenId, address(weth));
+        vm.stopPrank();
+
+        vm.warp(1725073002);
         vm.startPrank(user);
         vm.expectEmit();
         emit AdminDepositContract.PositionsReported(assembleId, issuer1NftAddress, tokenId);
@@ -140,13 +151,16 @@ contract DepositTest is Setup {
         accountOps.getOnChainReport(assembleId, issuer1NftAddress, tokenId, walletsReqChain, new bytes(0));
         payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
         
-        assertEq(accountOps.getAssembleChainsReported(assembleId), 4);
+        assertEq(accountOps.getReportedAssembleChains(assembleId), 4);
 
-        console.log(weth.balanceOf(issuer1));
         vm.startPrank(userB);
         uint256[] memory gAssembleIds = new uint256[](0);
         accountOps.liquidationChallenge(assembleId, addressToBytes32(address(weth)), aEid, addressToBytes32(address(userB)), gAssembleIds, new bytes(0));
 
+        console.log("Challenger Balance after 1: ", userB.balance * 1000 / 1e18);
+        console.log("Challenger Balance after 1: ", weth.balanceOf(userB) * 1000 / 1e18);
+        console.log("Issuer Balance after 1: ", issuer1.balance * 1000 / 1e18);
+        console.log("Issuer Balance after 1: ", weth.balanceOf(issuer1) * 1000 / 1e18);
 
         extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(70000, 0); // gas settings for B -> A
 
@@ -166,11 +180,13 @@ contract DepositTest is Setup {
 
         verifyPackets(bEid, addressToBytes32(address(depositCrossB)));
         vm.stopPrank();
-        console.log(weth.balanceOf(issuer1));
 
+        console.log("Challenger Balance after 2: ", userB.balance * 1000 / 1e18);
+        console.log("Challenger Balance after 2: ", weth.balanceOf(userB) * 1000 / 1e18);
+        console.log("Issuer Balance after 2: ", issuer1.balance * 1000 / 1e18);
+        console.log("Issuer Balance after 2: ", weth.balanceOf(issuer1) * 1000 / 1e18);
         assertEq(depositLocal.isLiquidationLocked(issuer1NftAddress, tokenId, address(weth)), false);
         assertEq(depositCrossB.isLiquidationLocked(issuer1NftAddress, tokenId, address(weth)), false);
-
     }
 
     function getReportPositionsPayload(uint256 tokenId2, uint256 assembleId, bytes32[] memory walletsReqChain) private pure  returns ( bytes memory payload ){
@@ -184,14 +200,88 @@ contract DepositTest is Setup {
             addressToBytes32(address(69)), // issuer nft address
             tokenId2, 
             depositAmount, 
-            wstETHDepositAmount, 
-            addressToBytes32(address(0)), //wethAddress
+            wstETHDepositAmount,
             addressToBytes32(address(0)), // wstETHaddress
+            depositAmount, // random uint256 for testing
             depositAmount, // random uint256 for testing
             walletsReqChain,
             borrowAmounts,
             interestAmounts
         );
+    }
+    function neighborhoodBorrow(
+        SmokeSpendingContract lendingContract,
+        address userAddress,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 signatureValidityVar,
+        uint256 nonce,
+        bool wethBool
+    ) public {
+        bytes memory signature = getIssuersSig(
+            lendingContract,
+            userAddress,
+            issuerNFT,
+            nftId,
+            amount,
+            timestamp,
+            signatureValidityVar,
+            nonce
+        );
+
+        lendingContract.borrow(
+            issuerNFT,
+            nftId,
+            amount,
+            timestamp,
+            signatureValidityVar,
+            nonce,
+            wethBool,
+            signature
+        );
+    }
+
+    function getIssuersSig(
+        SmokeSpendingContract lendingContract,
+        address borrower,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 signatureValidityVar,
+        uint256 nonce
+    ) private view returns (bytes memory) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("SmokeSpendingContract")),
+                keccak256(bytes("1")),
+                31337,
+                address(lendingContract)
+            )
+        );
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                BORROW_TYPEHASH,
+                borrower,
+                issuerNFT,
+                nftId,
+                amount,
+                timestamp,
+                signatureValidityVar,
+                nonce
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
 
