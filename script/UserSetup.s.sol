@@ -2,10 +2,12 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
-import "../src/lendingcontract.sol";
+import "../src/SmokeSpendingContract.sol";
+import "../src/AssemblePositionsContract.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/OperationsContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/WstETHOracleReceiver.sol";
 
 contract SetupScript is Script {
 
@@ -44,21 +46,21 @@ contract SetupScript is Script {
         vm.startBroadcast();
 
         // CoreNFTContract nftContract = new CoreNFTContract("Autogas", "OG", 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140, 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140, 20000000000000000, 10);
-        CoreNFTContract nftContract = CoreNFTContract(nftContractAddress);
-        OperationsContract accountOps = OperationsContract(opsCotnractAddress);
+        // CoreNFTContract nftContract = CoreNFTContract(nftContractAddress);
+        // OperationsContract accountOps = OperationsContract(opsCotnractAddress);
 
-        AdminDepositContract depositARB = AdminDepositContract(deposit_ARB_Address);
-        CrossChainLendingContract lendingARB = CrossChainLendingContract(lending_ARB_Address);
+        // AdminDepositContract depositARB = AdminDepositContract(deposit_ARB_Address);
+        // CrossChainLendingContract lendingARB = CrossChainLendingContract(lending_ARB_Address);
 
         // nftContract.setHigherLimit(tokenId, address(user), ARBEID, 1 * 10**18);
 
         console.log(address(0));
 
-        uint256[] memory chainList = nftContract.getChainList();
-        console.log(chainList.length);
-        console.log(chainList[0]);
-        console.logBytes32(accountOps.peers(ETHEID));
-        console.logBytes32(addressToBytes32(deposit_OPT_Address));
+        // uint256[] memory chainList = nftContract.getChainList();
+        // console.log(chainList.length);
+        // console.log(chainList[0]);
+        // console.logBytes32(accountOps.peers(ETHEID));
+        // console.logBytes32(addressToBytes32(deposit_OPT_Address));
         vm.stopBroadcast();
     }
 

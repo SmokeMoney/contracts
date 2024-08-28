@@ -3,11 +3,11 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol"; // Import console for logging
-import "../src/corenft.sol";
+import "../src/CoreNFTContract.sol";
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
-import "../src/borrow.sol";
-import "../src/deposit.sol";
+import "../src/SmokeSpendingContract.sol";
+import "../src/SmokeDepositContract.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {TestHelperOz5} from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
@@ -20,7 +20,7 @@ contract BorrowTest is TestHelperOz5 {
 
     SignatureGenerator public siggen;
     WETH public weth;
-    address public owner = address(69);
+    address public owner;
     address public issuer;
     uint256 internal issuerPk;
     address public user;
@@ -42,6 +42,7 @@ contract BorrowTest is TestHelperOz5 {
         (user, userPk) = makeAddrAndKey("user");
         (user2, user2Pk) = makeAddrAndKey("user2");
 
+        owner = address(this);
         user3 = address(3);
         adminChainIdReal = 1;
 
@@ -57,7 +58,9 @@ contract BorrowTest is TestHelperOz5 {
         );
         weth = new WETH();
         siggen = new SignatureGenerator();
-        lendingcontract = new SmokeSpendingContract(address(weth), aEid);
+        lendingcontract = new SmokeSpendingContract(address(weth), address(owner), aEid);
+
+        vm.stopPrank();
 
         lendingcontract.addIssuer(
             address(nftContract),
@@ -65,10 +68,8 @@ contract BorrowTest is TestHelperOz5 {
             1000,
             1e15,
             5e14,
-            1e13,
             2
         );
-        vm.stopPrank();
 
         vm.startPrank(issuer);
 
@@ -115,9 +116,9 @@ contract BorrowTest is TestHelperOz5 {
         weth.deposit{value: 0.0095 * 10 ** 18}();
         vm.stopPrank();
 
-        vm.startPrank(issuer);
-        lendingcontract.setBorrowFees(address(nftContract), 0.00001 * 1e18);
-        vm.stopPrank();
+        // vm.startPrank(issuer);
+        // lendingcontract.setBorrowFees(address(nftContract), 0.00001 * 1e18);
+        // vm.stopPrank();
     }
 
     bytes32 public constant DOMAIN_TYPEHASH = keccak256(
@@ -319,10 +320,10 @@ contract BorrowTest is TestHelperOz5 {
         );
         vm.stopPrank();
         console.log("blockstamp", timestamp);
-        // assertEq(lendingcontract.getNetPosition(address(nftContract), tokenId, user2), -25 * 10**18);
+        // assertEq(lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2), -25 * 10**18);
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
 
         vm.warp(1720962298);
@@ -344,7 +345,7 @@ contract BorrowTest is TestHelperOz5 {
         console.log("blockstamp", timestamp);
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
 
         vm.startPrank(user3);
@@ -358,7 +359,7 @@ contract BorrowTest is TestHelperOz5 {
         console.log("");
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
         console.log(
             "Borrow pos",
@@ -377,7 +378,7 @@ contract BorrowTest is TestHelperOz5 {
         console.log("");
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
         console.log(
             "Borrow pos",
@@ -400,7 +401,7 @@ contract BorrowTest is TestHelperOz5 {
         console.log("");
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
         console.log(
             "Borrow pos",
@@ -415,7 +416,7 @@ contract BorrowTest is TestHelperOz5 {
         vm.warp(1720962698);
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
         console.log(
             "Borrow pos",
@@ -430,7 +431,7 @@ contract BorrowTest is TestHelperOz5 {
         vm.warp(2131105470);
         console.log(
             "user debt",
-            lendingcontract.getNetPosition(address(nftContract), tokenId, user2)
+            lendingcontract.getBorrowPosition(address(nftContract), tokenId, user2)
         );
         console.log(
             "Total Borrow pos",

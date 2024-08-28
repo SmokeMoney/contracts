@@ -1,13 +1,8 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: CTOSL
 pragma solidity ^0.8.0;
 
 interface ICoreNFTContract {
     function ownerOf(uint256 nftId) external view returns (address);
-
-    function isManagerOrOwner(
-        uint256 nftId,
-        address addr
-    ) external view returns (bool);
 
     function isWalletAdded(
         uint256 nftId,
@@ -38,6 +33,10 @@ interface ICoreNFTContract {
     ) external view returns (bytes32[] memory);
 
     function getNativeCredit(uint256 nftId) external view returns (uint256);
+
+    function getLTV() external view returns (uint256);
+
+    function getLiquidationThreshold() external view returns (uint256);
 
     function getChainList() external view returns (uint256[] memory);
 

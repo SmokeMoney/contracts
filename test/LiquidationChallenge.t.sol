@@ -3,10 +3,10 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "./Setup.t.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
-import "../src/borrow.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/OperationsContract.sol";
+import "../src/SmokeSpendingContract.sol";
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -91,7 +91,7 @@ contract DepositTest is Setup {
 
         vm.warp(1724985381);
         vm.startPrank(userB);
-        uint256 assembleId = accountOps.createAssemblePositions(issuer1NftAddress, tokenId, false, address(userB));
+        uint256 assembleId = assemblePositionsContract.createAssemblePositions(issuer1NftAddress, tokenId, false, address(userB));
         vm.stopPrank();
 
         vm.startPrank(user);
@@ -121,7 +121,7 @@ contract DepositTest is Setup {
         vm.warp(1725073002);
         vm.startPrank(user);
         vm.expectEmit();
-        emit AdminDepositContract.PositionsReported(assembleId, issuer1NftAddress, tokenId);
+        emit SmokeDepositContract.PositionsReported(assembleId, issuer1NftAddress, tokenId);
 
         depositCrossB.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
         vm.stopPrank();
@@ -151,7 +151,7 @@ contract DepositTest is Setup {
         accountOps.getOnChainReport(assembleId, issuer1NftAddress, tokenId, walletsReqChain, new bytes(0));
         payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
         
-        assertEq(accountOps.getReportedAssembleChains(assembleId), 4);
+        assertEq(assemblePositionsContract.getReportedAssembleChains(assembleId), 4);
 
         vm.startPrank(userB);
         uint256[] memory gAssembleIds = new uint256[](0);

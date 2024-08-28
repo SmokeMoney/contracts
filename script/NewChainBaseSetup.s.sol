@@ -2,10 +2,12 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
-import "../src/lendingcontract.sol";
+import "../src/SmokeSpendingContract.sol";
+import "../src/AssemblePositionsContract.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/OperationsContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/WstETHOracleReceiver.sol";
 
 contract SetupScript is Script {
 

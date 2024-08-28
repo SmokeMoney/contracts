@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: CTOSL
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -11,10 +11,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
-interface IBorrowContract {
-    function getBorrowPositionSeparate(address issuerNFT, uint256 nftId, address wallet) external view returns (uint256, uint256, uint256);
-    function getIssuerAddress(address issuerNFT) external view returns(address);
-}
+import "./interfaces/ISmokeSpendingContract.sol";
 
 interface IWETH2 {
     function deposit() external payable;
@@ -58,10 +55,10 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
 
     mapping(address => IssuerData) public issuers; // issuer NFT contract -> data
     address public immutable accOpsContractAddress;
-    IBorrowContract public immutable borrowContract;
+    ISmokeSpendingContract public immutable spendingContract;
     address public immutable wethAddress;
     address public immutable wstETHAddress;
-    uint32 public immutable nftContractChainId;
+    uint32 public immutable adminChainId;
     uint32 public immutable chainId;
     IWETH2 public immutable WETH;
 
@@ -82,23 +79,23 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
     event PositionsReported(uint256 indexed assembleId, address indexed issuerNFT, uint256 indexed nftId);
     event QuickChallengeInitiated(address indexed token, address indexed issuerNFT, uint256 indexed nftId, address challenger, uint256 lockedAmount);
 
-    constructor(address _accOpsContract, address _borrowContract, address _wethAddress, address _wstETHAddress, uint32 _nftContractChainId, uint32 _chainId, address _endpoint, address _owner) 
+    constructor(address _accOpsContract, address _spendingContract, address _wethAddress, address _wstETHAddress, uint32 _adminChainId, uint32 _chainId, address _endpoint, address _owner) 
         OApp(_endpoint, _owner) 
         Ownable(_owner)
         EIP712("SmokeDepositContract", "1")
     {
         accOpsContractAddress = _accOpsContract;
-        borrowContract = IBorrowContract(_borrowContract);
+        spendingContract = ISmokeSpendingContract(_spendingContract);
         wethAddress = _wethAddress;
         wstETHAddress = _wstETHAddress;
-        nftContractChainId = _nftContractChainId;
+        adminChainId = _adminChainId;
         chainId = _chainId;
         WETH = IWETH2(_wethAddress);
     }
 
     modifier onlyIssuer(address issuerNFT) {
-        require(borrowContract.getIssuerAddress(issuerNFT) != address(0), "Invalid issuer");
-        require(msg.sender == borrowContract.getIssuerAddress(issuerNFT), "Not the issuer");
+        require(spendingContract.getIssuerAddress(issuerNFT) != address(0), "Invalid issuer");
+        require(msg.sender == spendingContract.getIssuerAddress(issuerNFT), "Not the issuer");
         _;
     }
 
@@ -146,7 +143,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         SecondaryWithdrawParams memory params,
         bytes memory signature
     ) external payable {
-        address issuerAddress = borrowContract.getIssuerAddress(params.issuerNFT);
+        address issuerAddress = spendingContract.getIssuerAddress(params.issuerNFT);
         require(issuerAddress != address(0), "Invalid issuer");
         require(!params.primary, "Invalid withdrawal. Not a primary port");
 
@@ -311,7 +308,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
 
         bytes memory payload = _gatherReportDataAndEncode(assembleId, issuerNFT, nftId, walletsBytes32);
 
-        if (chainId == nftContractChainId) {
+        if (chainId == adminChainId) {
             emit PositionsReported(assembleId, issuerNFT, nftId);
             return payload;
         } else {
@@ -331,7 +328,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         for (uint256 i = 0; i < walletsBytes32.length; i++) {
             address wallet = bytes32ToAddress(walletsBytes32[i]);
             uint256 borrowTimestamp;
-            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) = borrowContract.getBorrowPositionSeparate(issuerNFT, nftId, wallet);
+            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) = spendingContract.getBorrowPositionSeparate(issuerNFT, nftId, wallet);
             latestBorrowTimestamp = latestBorrowTimestamp > borrowTimestamp ? latestBorrowTimestamp : borrowTimestamp;
         }
 
@@ -352,7 +349,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
 
     function _crossChainReport(bytes memory payload, bytes calldata _extraOptions) internal {
         _lzSend(
-            nftContractChainId,
+            adminChainId,
             payload,
             _extraOptions,
             MessagingFee(msg.value, 0),
@@ -409,7 +406,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         uint256 challengePeriod = issuerData.challengerLocks[token][nftId] > 0 ? EXTENDED_CHALLENGE_PERIOD : MIN_CHALLENGE_PERIOD;
         require(block.timestamp >= issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period not over");
         
-        address issuer = borrowContract.getIssuerAddress(issuerNFT);
+        address issuer = spendingContract.getIssuerAddress(issuerNFT);
         IERC20(token).safeTransfer(issuer, issuerData.deposits[token][nftId] + issuerData.issuerLocks[token][nftId]);
 
         // Return challenger's deposit if there was a quick challenge
@@ -447,7 +444,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         require(block.timestamp < issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period over");
         require(issuerData.liquidationLockTimes[token][nftId] < assembleTimestamp, "Assembled before liquidation lock");
         
-        address issuer = borrowContract.getIssuerAddress(issuerNFT);
+        address issuer = spendingContract.getIssuerAddress(issuerNFT);
 
         if (issuerData.liquidationLockTimes[token][nftId] < latestBorrowTimestamp) {
             IERC20(token).safeTransfer(issuer, issuerData.issuerLocks[token][nftId]);

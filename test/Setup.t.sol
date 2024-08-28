@@ -2,11 +2,12 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
-import "../src/borrow.sol";
-import "../src/wstETHOracleReceiver.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/OperationsContract.sol";
+import "../src/SmokeSpendingContract.sol";
+import "../src/AssemblePositionsContract.sol";
+import "../src/WstETHOracleReceiver.sol";
 
 
 import "../src/archive/weth.sol";
@@ -48,12 +49,13 @@ contract Setup is TestHelperOz5 {
     address public userB = address(0x2);
     uint256 public initialBalance = 100 ether;
 
-    AdminDepositContract public depositLocal;
-    AdminDepositContract public depositCrossB;
-    AdminDepositContract public depositCrossC;
-    AdminDepositContract public depositCrossD;
+    SmokeDepositContract public depositLocal;
+    SmokeDepositContract public depositCrossB;
+    SmokeDepositContract public depositCrossC;
+    SmokeDepositContract public depositCrossD;
     CoreNFTContract public issuer1NftContract;
     address public issuer1NftAddress;
+    AssemblePositionsContract public assemblePositionsContract;
     OperationsContract public accountOps;
     WstETHOracleReceiver public wstETHOracle;
     CrossDomainMessenger public l2_messenger;
@@ -65,6 +67,7 @@ contract Setup is TestHelperOz5 {
     
     WETH public weth;   
     MockERC20 public wstETH;
+    address public owner;
     address public issuer1;
     address public user2;
     uint256 internal issuer1Pk;
@@ -85,6 +88,7 @@ contract Setup is TestHelperOz5 {
 
         // issuer = address(1);
         user2 = address(3);
+        owner = address(this);
         adminChainIdReal = 1;
         
         vm.startPrank(issuer1);
@@ -97,37 +101,39 @@ contract Setup is TestHelperOz5 {
 
         issuer1NftAddress = address(issuer1NftContract);
         
-        lendingcontract = new SmokeSpendingContract(address(weth), uint256(aEid));
-        lendingcontractB = new SmokeSpendingContract(address(weth), uint256(bEid));
-        lendingcontractC = new SmokeSpendingContract(address(weth), uint256(cEid));
-        lendingcontractD = new SmokeSpendingContract(address(weth), uint256(dEid));
+        lendingcontract = new SmokeSpendingContract(address(weth), owner, uint256(aEid));
+        lendingcontractB = new SmokeSpendingContract(address(weth), owner, uint256(bEid));
+        lendingcontractC = new SmokeSpendingContract(address(weth), owner, uint256(cEid));
+        lendingcontractD = new SmokeSpendingContract(address(weth), owner, uint256(dEid));
 
         l2_messenger = new CrossDomainMessenger();
         wstETHOracle = new WstETHOracleReceiver(address(l2_messenger), address(42));
 
+        assemblePositionsContract = new AssemblePositionsContract(address(wstETHOracle));
         vm.prank(address(l2_messenger));
         wstETHOracle.setWstETHRatio(1.17*1e18);
 
         accountOps = OperationsContract(
-            payable(_deployOApp(type(OperationsContract).creationCode, abi.encode(address(issuer1NftContract), address(endpoints[aEid]), address(wstETHOracle), address(this), 1)))
+            payable(_deployOApp(type(OperationsContract).creationCode, abi.encode(address(endpoints[aEid]), address(assemblePositionsContract), address(this), 1)))
         );
 
-        depositLocal = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this))))
+        assemblePositionsContract.setOperationsContract(address(accountOps));
+
+        depositLocal = SmokeDepositContract(
+            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this))))
         );
 
-        depositCrossB = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(this))))
+        depositCrossB = SmokeDepositContract(
+            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(this))))
         );
 
-        depositCrossC = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(this))))
+        depositCrossC = SmokeDepositContract(
+            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(this))))
         );
 
-        depositCrossD = AdminDepositContract(
-            payable(_deployOApp(type(AdminDepositContract).creationCode, abi.encode(address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(this))))
+        depositCrossD = SmokeDepositContract(
+            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(this))))
         );
-
 
         // console.log("Set up all the contracts, ny: ", issuer1);
         // console.log("Set up all the contracts, ny: ", address(this));
@@ -141,10 +147,10 @@ contract Setup is TestHelperOz5 {
         this.wireOApps(oapps);
 
         accountOps.addIssuer(issuer1NftAddress);
-        lendingcontract.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
-        lendingcontractB.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
-        lendingcontractC.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
-        lendingcontractD.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 1e13, 2);
+        lendingcontract.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 2);
+        lendingcontractB.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 2);
+        lendingcontractC.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 2);
+        lendingcontractD.addIssuer(issuer1NftAddress, issuer1, 1000, 1e15, 1e15, 2);
 
         accountOps.setDepositContract(aEid, address(depositLocal)); // Adding the deposit contract on the local chain
         accountOps.setDepositContract(bEid, address(depositCrossB)); // Adding the deposit contract on a diff chain

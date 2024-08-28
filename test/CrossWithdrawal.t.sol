@@ -2,9 +2,9 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/OperationsContract.sol";
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";

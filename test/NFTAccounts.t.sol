@@ -3,9 +3,9 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "./Setup.t.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/OperationsContract.sol";
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -21,7 +21,7 @@ contract DepositTest is Setup {
     uint16 SEND = 1;
     uint16 SEND_ABA = 2;
 
-    AdminDepositContract public depositCross;
+    SmokeDepositContract public depositCross;
 
     bytes32 private constant SET_LOWER_LIMIT_TYPEHASH = keccak256(
         "SetLowerLimit(uint256 nftId,bytes32 wallet,uint256 chainId,uint256 newLimit,uint256 timestamp,uint256 nonce)"
@@ -135,7 +135,6 @@ contract DepositTest is Setup {
         issuer1NftContract.setLowerLimit(tokenId, addressToBytes32(user), 3, newlimit, timestamp, 1, signature);
         console.log("set lower limits at", timestamp);
         console.log(issuer1NftContract.getWalletChainLimit(tokenId, addressToBytes32(address(user)), cEid));
-        issuer1NftContract.addManager(tokenId, user2);
         vm.stopPrank();
 
         uint256[] memory newLimits = new uint256[](4);
@@ -164,7 +163,7 @@ contract DepositTest is Setup {
         signature = getSignature(structHash);
 
 
-        vm.startPrank(user2);
+        vm.startPrank(user);
         issuer1NftContract.resetWalletChainLimits(tokenId, addressToBytes32(address(user)), timestamp, 2, signature);
         vm.stopPrank();
     }

@@ -2,11 +2,11 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-import "../src/deposit.sol";
-import "../src/corenft.sol";
-import "../src/accountops.sol";
-import "../src/borrow.sol";
-import "../src/wstETHOracleReceiver.sol";
+import "../src/SmokeDepositContract.sol";
+import "../src/CoreNFTContract.sol";
+import "../src/OperationsContract.sol";
+import "../src/SmokeSpendingContract.sol";
+import "../src/WstETHOracleReceiver.sol";
 
 import "./Setup.t.sol";
 
@@ -28,7 +28,7 @@ contract DepositTest is Setup {
 
     function setUp() public override {
         super.setUp();
-        // super.setupRateLimits();
+        super.setupRateLimits();
         // (issuer1, issuer1Pk) = makeAddrAndKey("issuer");
     }
     
@@ -119,7 +119,7 @@ contract DepositTest is Setup {
 
         uint256 signatureValidity = 2 minutes;
 
-        console.log("Issuer NFT ADdresss", issuer1NftAddress);
+        // console.log("Issuer NFT ADdresss", issuer1NftAddress);
 
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
@@ -143,11 +143,11 @@ contract DepositTest is Setup {
         wstETHOracle.setWstETHRatio(1.175*1e18);
 
         vm.startPrank(user);
-        uint256 assembleId = accountOps.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
+        uint256 assembleId = assemblePositionsContract.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
         vm.stopPrank();
         vm.startPrank(user);
         vm.expectRevert();
-        accountOps.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
+        assemblePositionsContract.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
         vm.stopPrank();
 
         bytes memory extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(200000, 0); // gas settings for B -> A
@@ -161,7 +161,7 @@ contract DepositTest is Setup {
 
         vm.startPrank(user);
         // vm.expectEmit();
-        // emit AdminDepositContract.PositionsReported(assembleId, tokenId);
+        // emit SmokeDepositContract.PositionsReported(assembleId, tokenId);
 
         vm.warp(1721063381);
         depositCrossB.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
@@ -192,7 +192,7 @@ contract DepositTest is Setup {
         accountOps.getOnChainReport(assembleId, issuer1NftAddress, tokenId, walletsReqChain, new bytes(0));
         payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
         
-        assertEq(accountOps.getReportedAssembleChains(assembleId), 4);
+        assertEq(assemblePositionsContract.getReportedAssembleChains(assembleId), 4);
 
 
         uint256[] memory withdrawAmounts = new uint256[](2);
@@ -214,10 +214,8 @@ contract DepositTest is Setup {
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
 
-        console.log("Issuer NFT ADdresss", issuer1NftAddress);
-        console.log(depositCrossB.getDepositAmount(issuer1NftAddress, tokenId, address(weth)));
-        console.log(address(depositCrossB));
-        console.logBytes(extraOptions);
+        
+        console.log(assemblePositionsContract.getAssembleBorrowPosition(assembleId, 2, addressToBytes32(user)));
         vm.startPrank(user);
         accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, addressToBytes32(address(weth)), withdrawAmounts, targetChainIds, addressToBytes32(address(user)), extraOptions);
         vm.stopPrank();
@@ -231,7 +229,7 @@ contract DepositTest is Setup {
         targetChainIds[0] = dEid;
 
         vm.startPrank(user);
-        accountOps.markAssembleComplete(assembleId);
+        assemblePositionsContract.markAssembleComplete(assembleId);
         vm.stopPrank();
         extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(90000, 0); // gas settings for B -> A
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: CTOSL
 pragma solidity ^0.8.0;
 
 interface IDepositContract {

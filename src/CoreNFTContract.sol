@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: CTOSL
 
 pragma solidity ^0.8.0;
 
@@ -52,6 +52,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         "ConnectGWallet(uint256 nftId,uint256 gNFTId,bytes32 wallet,bytes32 gWallet)"
     );
 
+    address[] private _ownershipHistory;
     mapping(uint256 => Account) private _accounts;
     mapping(uint256 => uint256) private _gNFTMapping; // gNFT => NFT
     uint256 public mintPrice;
@@ -62,6 +63,8 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     mapping(uint256 => uint256) public lowerLimitNonces;
     string private _baseTokenURI;
 
+    uint256 public constant LTV_RATIO = 9000; // 90% LTV ratio
+    uint256 public constant LIQ_THRESHOLD = 9500; // 95% LTV ratio
     uint256 public constant SIGNATURE_VALIDITY = 5 minutes;
     uint256 public constant TOTAL_SUPPLY = 15792089237316195423570985008687907853269984665640564039457584007913129639935;
 
@@ -299,7 +302,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
             gWallet
         ));
 
-        require(_verifySignature(structHash, signature), "Invalid signature");
+        require(_verifyHistIssuerSignature(structHash, signature), "Invalid issuer signature");
         
         // Remove the specific wallet from the list
         bool found = false;
@@ -330,6 +333,12 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         }
         
         emit WalletConnected(nftId, gNFTId, wallet, gWallet);
+    }
+
+    function _verifyHistIssuerSignature(bytes32 structHash, bytes memory signature) internal view returns (bool) {
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, signature);
+        return hasBeenOwner(signer);
     }
 
     function _verifySignature(bytes32 structHash, bytes memory signature) internal view returns (bool) {
@@ -409,6 +418,14 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     function getTotalSupply() external pure returns (uint256) {
         return TOTAL_SUPPLY;
     }
+    
+    function getLiquidationThreshold() external pure returns (uint256) {
+        return LIQ_THRESHOLD;
+    }
+    
+    function getLTV() external pure returns (uint256) {
+        return LTV_RATIO;
+    }
 
     function getLimitsConfig(uint256 nftId, bytes32 wallet) external view returns (uint256[] memory) {
         uint256 chainCount = chainList.length;
@@ -485,6 +502,23 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
             }
         }
         return totalPWalletLimit;
+    }
+
+    function hasBeenOwner(address account) public view returns (bool) {
+        for (uint i = 0; i < _ownershipHistory.length; i++) {
+            if (_ownershipHistory[i] == account) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function transferOwnership(address newOwner) public virtual override onlyOwner {
+        address oldOwner = owner();
+        require(_ownershipHistory.length<100, "max limit reached"); // else the owner can grieve the gNFT holders by making it really expensive to connect
+        super.transferOwnership(newOwner);
+        _ownershipHistory.push(newOwner);
+        emit OwnershipTransferred(oldOwner, newOwner);
     }
 
     function _update(address to, uint256 nftId, address auth) internal override(ERC721, ERC721Enumerable) returns (address) {
