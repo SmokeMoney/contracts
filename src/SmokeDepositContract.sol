@@ -332,6 +332,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
             latestBorrowTimestamp = latestBorrowTimestamp > borrowTimestamp ? latestBorrowTimestamp : borrowTimestamp;
         }
 
+        console2.logBytes32(addressToBytes32(issuerNFT));
         return abi.encode(
             assembleId,
             addressToBytes32(issuerNFT),

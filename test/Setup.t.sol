@@ -101,10 +101,10 @@ contract Setup is TestHelperOz5 {
 
         issuer1NftAddress = address(issuer1NftContract);
         
-        lendingcontract = new SmokeSpendingContract(address(weth), owner, uint256(aEid));
-        lendingcontractB = new SmokeSpendingContract(address(weth), owner, uint256(bEid));
-        lendingcontractC = new SmokeSpendingContract(address(weth), owner, uint256(cEid));
-        lendingcontractD = new SmokeSpendingContract(address(weth), owner, uint256(dEid));
+        lendingcontract = new SmokeSpendingContract(address(weth), owner);
+        lendingcontractB = new SmokeSpendingContract(address(weth), owner);
+        lendingcontractC = new SmokeSpendingContract(address(weth), owner);
+        lendingcontractD = new SmokeSpendingContract(address(weth), owner);
 
         l2_messenger = new CrossDomainMessenger();
         wstETHOracle = new WstETHOracleReceiver(address(l2_messenger), address(42));

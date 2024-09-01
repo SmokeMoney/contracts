@@ -38,7 +38,8 @@ contract BorrowTest is TestHelperOz5 {
     uint256 public adminChainIdReal;
 
     function setUp() public virtual override {
-        (issuer, issuerPk) = makeAddrAndKey("issuer");
+        issuer = 0xE0D6f93151091f24EA09474e9271BD60F2624d99;
+        issuerPk = vm.envUint("PRIVATE_KEY");
         (user, userPk) = makeAddrAndKey("user");
         (user2, user2Pk) = makeAddrAndKey("user2");
 
@@ -58,7 +59,7 @@ contract BorrowTest is TestHelperOz5 {
         );
         weth = new WETH();
         siggen = new SignatureGenerator();
-        lendingcontract = new SmokeSpendingContract(address(weth), address(owner), aEid);
+        lendingcontract = new SmokeSpendingContract(address(weth), address(owner));
 
         vm.stopPrank();
 
@@ -188,7 +189,7 @@ contract BorrowTest is TestHelperOz5 {
             nonce
         );
 
-        bytes memory issuersSignature = getIssuersSig(
+        bytes memory issuersSignature = getIssuersSig2(
             lendingContract,
             recipeint,
             issuerNFT,
@@ -257,6 +258,48 @@ contract BorrowTest is TestHelperOz5 {
         );
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function getIssuersSig2(
+        SmokeSpendingContract lendingContract,
+        address borrower,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 signatureValidityVar,
+        uint256 nonce
+    ) private view returns (bytes memory) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("SmokeSpendingContract")),
+                keccak256(bytes("1")),
+                421614,
+                0x9F1b8D30D9e86B3bF65fa9f91722B4A3E9802382
+            )
+        );
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                BORROW_TYPEHASH,
+                borrower,
+                issuerNFT,
+                0,
+                amount,
+                1724995549,
+                120,
+                0
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuerPk, digest);
+        console.logBytes(abi.encodePacked(r, s, v));
         return abi.encodePacked(r, s, v);
     }
 
@@ -465,11 +508,11 @@ contract BorrowTest is TestHelperOz5 {
     }
 
     function testBorrowGasless() public {
-        vm.warp(1720962281);
+        vm.warp(1724993588);
         uint256 timestamp = vm.getBlockTimestamp();
         // Mint an NFT for the user
         vm.startPrank(issuer);
-        neighborhoodBorrowWithSig(lendingcontract, user2, address(nftContract), tokenId, 25 * 10 ** 18, timestamp, signatureValidity, 1, false, true);
+        neighborhoodBorrowWithSig(lendingcontract, 0xa2A53973a147F2996F3f33c363Af0f22Dc46c549, 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A, 0, 0.00042 * 10 ** 18, timestamp, 120, 0, false, true);
         vm.stopPrank();
     }
 

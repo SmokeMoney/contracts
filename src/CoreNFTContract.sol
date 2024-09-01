@@ -83,7 +83,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     constructor(string memory name, string memory symbol, address _owner, uint256 _mintPrice, uint256 _maxNFTs) 
         ERC721(name, symbol) 
         Ownable(_owner)
-        EIP712("CoreNFTContract", "1")
+        EIP712("CoreNFTContract", "1") // @attackVector I don't have salt for my 712 implementation, is this a concern? 
     {
         mintPrice = _mintPrice;
         maxNFTs = _maxNFTs;

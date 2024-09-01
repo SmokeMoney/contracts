@@ -57,7 +57,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     }
     
     bytes32 private constant BORROW_TYPEHASH = keccak256(
-        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce)"
     );
 
     IWETH public immutable WETH;
@@ -69,7 +69,6 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     uint256 public constant SECONDS_PER_YEAR = 31536000;
     uint256 public constant SIGNATURE_VALIDITY = 1 minutes;
     uint256 public constant REPORTED_POS_BLOCK = 20 minutes;
-    uint256 public immutable chainId;
     address public spendingConfigContract;
 
     event Borrowed(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
@@ -86,9 +85,8 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     event IssuerRemoved(address issuerNFT);
     event FeeRecipientChanged(address indexed issuerNFT, address newFeeRecipient);
 
-    constructor(address _weth, address _owner, uint256 _chainId) Ownable(_owner) EIP712("SmokeSpendingContract", "1") {
+    constructor(address _weth, address _owner) Ownable(_owner) EIP712("SmokeSpendingContract", "1") {
         WETH = IWETH(_weth);
-        chainId = _chainId;
         smokeFeesMaxBps = 500; // 5 BPS maximum total fees
     }
 

@@ -26,18 +26,22 @@ contract SetupScript is Script {
     address issuer1 = 0xE0D6f93151091f24EA09474e9271BD60F2624d99;
     address lz_endpoint = 0x6EDCE65403992e310A62460808c4b910D972f10f;
 
-    address issuer1NftContractAddress = 0x6d5ecc0aa8DcE64045b1053A2480D82A61Ad86Bc;
-    address opsCotnractAddress = 0x269488db82d434dC2E08e3B6f428BD1FF90C4325;
-    
-    address deposit_BAS_Address = 0x74Ee076c2ce51e081375B3f106e525646697809d;
-    address deposit_ARB_Address = 0x873f2667Bd24982626a7e4A12d71491b89812e6b;
-    address deposit_OPT_Address = 0x0F9F8AbFD3689A76916e7d19A8573F0899E0Da14;
-    address deposit_ETH_Address = 0x2d5905509ee73e8abf0fd50988EE5cEd19b2ca90;
+    address issuer1NftContractAddress;
+    address opsCotnractAddress;
 
-    address payable spending_BAS_Address = payable(0xa2926E337A8c0B366ba7c263F6EbBb018d306aF4);
-    address payable spending_ARB_Address = payable(0xBFa2901F914A6a4f005D85181349F50a4981A776);
-    address payable spending_OPT_Address = payable(0x6698928094A6Ac338eA71D66a9Bcdba028B81d4F);
-    address payable spending_ETH_Address = payable(0x99741c2f93Df59e8c3D957998265b977e4b6CA72);
+    address deposit_ARB_Address = 0xced5018D9C2d1088907581A7C24c670667F0079b;
+    address deposit_ETH_Address = 0xB48F7a8aD1302C77C75acd3BB98f416000A99aad;
+    address deposit_OPT_Address = 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A;
+    address deposit_BAS_Address;
+
+    address payable spending_ARB_Address =
+        payable(0x9F1b8D30D9e86B3bF65fa9f91722B4A3E9802382);
+    address payable spending_ETH_Address =
+        payable(0xC4e5BC86C3CAEd72dB41e62675f27b239Cb23bc6);
+    address payable spending_OPT_Address =
+        payable(0x4AA5F077688ba0d53836A3B9E9FDC3bFB16B1362);
+    address payable spending_BAS_Address =
+        payable(0xF1dE39102db79151F20cAC04D3A5DCe45a3D8Dbc);
 
     address weth_ARB_Address = 0x980B62Da83eFf3D4576C647993b0c1D7faf17c73;
     address weth_ETH_Address = 0xf531B8F309Be94191af87605CfBf600D71C2cFe0;
@@ -71,7 +75,7 @@ contract SetupScript is Script {
                 BASEID // adminChainId
             );
             console.log("accountOps", address(accountOps));
-
+            opsCotnractAddress = address(accountOps);
             issuer1NftContract = new CoreNFTContract(
                 "Smoke Cards",
                 "SMOKE",
@@ -80,13 +84,12 @@ contract SetupScript is Script {
                 10 // max nfts
             );
             console.log("issuer1NftContract", address(issuer1NftContract));
-
+            issuer1NftContractAddress = address(issuer1NftContract);
             spendingContract = new SmokeSpendingContract(
                 weth_BAS_Address,
                 owner
             );
             console.log("spendingContract", address(spendingContract));
-
             depositContract = new SmokeDepositContract(
                 address(accountOps),
                 address(spendingContract),
@@ -98,6 +101,13 @@ contract SetupScript is Script {
                 owner
             );
             console.log("depositContract", address(depositContract));
+
+            deposit_BAS_Address= address(depositContract);
+            
+            issuer1NftContract.approveChain(ARBEID);
+            issuer1NftContract.approveChain(ETHEID);
+            issuer1NftContract.approveChain(OPTEID);
+            issuer1NftContract.approveChain(BASEID);
 
             spendingContract.addIssuer(
                 address(issuer1NftContract),
@@ -119,16 +129,9 @@ contract SetupScript is Script {
             accountOps.setPeer(ARBEID, addressToBytes32(deposit_ARB_Address));
             accountOps.setPeer(OPTEID, addressToBytes32(deposit_OPT_Address));
         } else {
-
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             depositContract = SmokeDepositContract(deposit_BAS_Address);
-            issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
-            spendingContract.poolDeposit{value: 0.5 * 1e18}(issuer1NftContractAddress);
-
-            issuer1NftContract.approveChain(ARBEID);
-            issuer1NftContract.approveChain(ETHEID);
-            issuer1NftContract.approveChain(OPTEID);
-            issuer1NftContract.approveChain(BASEID);
+            // spendingContract.poolDeposit{value: 0.5 * 1e18}(issuer1NftContractAddress);
 
             depositContract.addSupportedToken(weth_BAS_Address, issuer1NftContractAddress);
             depositContract.addSupportedToken(wsteth_BAS_Address, issuer1NftContractAddress);
