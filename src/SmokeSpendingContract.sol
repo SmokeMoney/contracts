@@ -45,6 +45,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     }
 
     struct BorrowParams {
+        address borrower;
         address issuerNFT;
         uint256 nftId;
         uint256 amount;
@@ -57,7 +58,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     }
     
     bytes32 private constant BORROW_TYPEHASH = keccak256(
-        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce)"
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,address recipient)"
     );
 
     IWETH public immutable WETH;
@@ -84,6 +85,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     event IssuerAdded(address issuerNFT, address issuerAddress);
     event IssuerRemoved(address issuerNFT);
     event FeeRecipientChanged(address indexed issuerNFT, address newFeeRecipient);
+    event PayedBackIssuer(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
 
     constructor(address _weth, address _owner) Ownable(_owner) EIP712("SmokeSpendingContract", "1") {
         WETH = IWETH(_weth);
@@ -143,6 +145,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 timestamp,
         uint256 signatureValidity,
         uint256 nonce,
+        address recipient,
         bool weth,
         bytes memory signature
     ) external nonReentrant {
@@ -161,7 +164,8 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
             amount,
             timestamp,
             signatureValidity,
-            nonce
+            nonce,
+            recipient
         )));
         address signer = ECDSA.recover(digest, signature);
         require(signer == issuerData.issuerAddress, "Invalid signature");
@@ -206,15 +210,17 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
 
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
             BORROW_TYPEHASH,
-            params.recipient,
+            params.borrower,
             params.issuerNFT,
             params.nftId,
             params.amount,
             params.timestamp,
             params.signatureValidity,
-            params.nonce
+            params.nonce,
+            params.recipient
         )));
         address signer = ECDSA.recover(digest, userSignature);
+        require(signer == params.borrower, "Invalid signature, wrong signer");
         require(ECDSA.recover(digest, issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid signature");
 
         return signer;
@@ -260,6 +266,13 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         emit BorrowedAndSent(issuerNFT, nftId, signer, amount, recipient);
     }
 
+    function _payBackIssuer(address issuerNFT, uint256 nftId, address signer, uint256 amount) internal {
+        IssuerData storage issuerData = issuers[issuerNFT];
+        BorrowPosition storage borrowPosition = issuerData.borrowPositions[nftId][signer];
+        borrowPosition.amount += amount;
+        emit PayedBackIssuer(issuerNFT, nftId, signer, amount);
+    }
+
     function isBorrower(address issuerNFT, uint256 nftId, address wallet) internal view returns (bool) {
         address[] storage nftBorrowers = issuers[issuerNFT].borrowers[nftId];
         for (uint i = 0; i < nftBorrowers.length; i++) {
@@ -271,11 +284,14 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     }
 
     function triggerAutogas(address issuerNFT, uint256 nftId, address wallet) external onlyIssuer(issuerNFT) {
+        uint256 gasStart = gasleft();
         IssuerData storage issuerData = issuers[issuerNFT];
         require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
 
         _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
-
+        uint256 gasUsed = gasStart - gasleft();
+        uint256 paymentAmount = gasUsed * tx.gasprice * 2;
+        _payBackIssuer(issuerNFT, nftId, wallet, paymentAmount);
         emit AutogasTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
     }
 
@@ -288,7 +304,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
         uint256 gasUsed = gasStart - gasleft();
         uint256 paymentAmount = gasUsed * tx.gasprice * 2;
-        _executeBorrowAndSend(issuerNFT, nftId, wallet, paymentAmount, msg.sender, false);
+        _payBackIssuer(issuerNFT, nftId, wallet, paymentAmount);
 
         emit AutogasSpikeTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
     }

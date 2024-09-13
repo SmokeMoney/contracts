@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import "./interfaces/ISmokeSpendingContract.sol";
 
-contract SpendingConfig is Ownable{
+contract SpendingConfig is Ownable {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
 

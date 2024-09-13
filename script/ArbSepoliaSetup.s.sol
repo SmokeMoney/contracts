@@ -22,25 +22,26 @@ contract SetupScript is Script {
     address issuer1 = 0xE0D6f93151091f24EA09474e9271BD60F2624d99;
     address lz_endpoint = 0x6EDCE65403992e310A62460808c4b910D972f10f;
 
-    address issuer1NftContractAddress = 0x6d5ecc0aa8DcE64045b1053A2480D82A61Ad86Bc;
-    address opsCotnractAddress = 0x269488db82d434dC2E08e3B6f428BD1FF90C4325;
+    address issuer1NftContractAddress = 0xA500C712e7EbDd5040f1A212800f5f6fa20d05F8;
+    address opsContractAddress = 0x54764680B3863A1B72C376Ae92a3cCE65C4DdE69;
     
-    address deposit_BAS_Address = 0x74Ee076c2ce51e081375B3f106e525646697809d;
-    address deposit_ARB_Address = 0x873f2667Bd24982626a7e4A12d71491b89812e6b;
-    address deposit_OPT_Address = 0x0F9F8AbFD3689A76916e7d19A8573F0899E0Da14;
-    address deposit_ETH_Address = 0x2d5905509ee73e8abf0fd50988EE5cEd19b2ca90;
-
-    address payable spending_BAS_Address = payable(0xa2926E337A8c0B366ba7c263F6EbBb018d306aF4);
-    address payable spending_ARB_Address = payable(0xBFa2901F914A6a4f005D85181349F50a4981A776);
-    address payable spending_OPT_Address = payable(0x6698928094A6Ac338eA71D66a9Bcdba028B81d4F);
-    address payable spending_ETH_Address = payable(0x99741c2f93Df59e8c3D957998265b977e4b6CA72);
+    address deposit_BAS_Address = 0x617324745740d7CE92e0E1AB325870F186bDC1a1;
+    address deposit_ARB_Address = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
+    address deposit_OPT_Address = 0x73A257e356Dd6Eb65c2cE9753C67f43Ae3e33A6B;
+    address deposit_ETH_Address = 0xdaab75CA8E7E3c0F880C4D1727c9c287139b2CA5;
+    address deposit_ZORA_Address = 0x2Cbe484B1E2fe4ffA28Fef0cAa0C9E0D724Fe183;
+    
+    address payable spending_BAS_Address = payable(0xdaab75CA8E7E3c0F880C4D1727c9c287139b2CA5);
+    address payable spending_ARB_Address = payable(0x3d4CF5232061744CA5E72eAB6624C96750D71EC2);
+    address payable spending_OPT_Address = payable(0xBfE686A5BD487B52943D9E550e42C4910aB33888);
+    address payable spending_ETH_Address = payable(0xA500C712e7EbDd5040f1A212800f5f6fa20d05F8);
+    address payable spending_ZORA_Address = payable(0xDF52714C191e8C4EC26cCD5B1578a904724e93b6);
 
     address weth_ARB_Address = 0x980B62Da83eFf3D4576C647993b0c1D7faf17c73;
     address wsteth_ARB_Address = 0xDF52714C191e8C4EC26cCD5B1578a904724e93b6;
 
-    function run() external {
+    function run(uint8 config) external {
         vm.startBroadcast();
-        uint8 config = 3;
         if (config == 1) {
             // setting up all the contracts from scratch
 
@@ -55,7 +56,7 @@ contract SetupScript is Script {
                 address(spendingContract),
                 weth_ARB_Address,
                 wsteth_ARB_Address,
-                ARBEID, // adminchain ID
+                BASEID, // adminchain ID
                 ARBEID, // current chain ID
                 lz_endpoint,
                 owner
@@ -72,8 +73,8 @@ contract SetupScript is Script {
             );
 
             depositContract.setPeer(
-                ARBEID,
-                addressToBytes32(opsCotnractAddress)
+                BASEID, // adminchain ID
+                addressToBytes32(opsContractAddress)
             );
 
         } else if (config == 3) {
@@ -91,6 +92,11 @@ contract SetupScript is Script {
                 wsteth_ARB_Address,
                 issuer1NftContractAddress
             );
+        }
+        else if (config == 7) {
+            spendingContract = SmokeSpendingContract(spending_ARB_Address);
+            uint256 wethBalance = IWETH2(weth_ARB_Address).balanceOf(address(spendingContract));
+            spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);
         }
         vm.stopBroadcast();
     }

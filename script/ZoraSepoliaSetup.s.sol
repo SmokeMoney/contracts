@@ -14,6 +14,7 @@ contract SetupScript is Script {
     uint32 ETHEID = 40161;
     uint32 OPTEID = 40232;
     uint32 BASEID = 40245;
+    uint32 ZORAID = 40287;
 
     SmokeSpendingContract spendingContract;
     SmokeDepositContract depositContract;
@@ -30,23 +31,23 @@ contract SetupScript is Script {
     address deposit_OPT_Address = 0x73A257e356Dd6Eb65c2cE9753C67f43Ae3e33A6B;
     address deposit_ETH_Address = 0xdaab75CA8E7E3c0F880C4D1727c9c287139b2CA5;
     address deposit_ZORA_Address = 0x2Cbe484B1E2fe4ffA28Fef0cAa0C9E0D724Fe183;
-    
+
     address payable spending_BAS_Address = payable(0xdaab75CA8E7E3c0F880C4D1727c9c287139b2CA5);
     address payable spending_ARB_Address = payable(0x3d4CF5232061744CA5E72eAB6624C96750D71EC2);
     address payable spending_OPT_Address = payable(0xBfE686A5BD487B52943D9E550e42C4910aB33888);
     address payable spending_ETH_Address = payable(0xA500C712e7EbDd5040f1A212800f5f6fa20d05F8);
     address payable spending_ZORA_Address = payable(0xDF52714C191e8C4EC26cCD5B1578a904724e93b6);
 
-    address weth_ETH_Address = 0xf531B8F309Be94191af87605CfBf600D71C2cFe0;
-    address wsteth_ETH_Address = 0x981830D1946e6FC9D5F893327a2819Fd5E2C5819;
+    address weth_ZORA_Address = 0x4200000000000000000000000000000000000006;
+    address wsteth_ZORA_Address = 0x14440344256002a5afaA1403EbdAf4bf9a5499E3;
 
-    function run(uint8 config) external {
+    function run(uint8 config) external {   
         vm.startBroadcast();
 
         if (config == 1) {
             // setting up all the contracts from scratch
             spendingContract = new SmokeSpendingContract(
-                weth_ETH_Address,
+                weth_ZORA_Address,
                 owner
             );
             console.log("spendingContract", address(spendingContract));
@@ -54,10 +55,10 @@ contract SetupScript is Script {
             depositContract = new SmokeDepositContract(
                 address(0),
                 address(spendingContract),
-                weth_ETH_Address,
-                wsteth_ETH_Address,
+                weth_ZORA_Address,
+                wsteth_ZORA_Address,
                 BASEID, // adminchain ID
-                ETHEID, // current chain ID
+                ZORAID, // current chain ID
                 lz_endpoint,
                 owner
             );
@@ -71,30 +72,27 @@ contract SetupScript is Script {
                 1e15, // autogasRefill 0.001 ETH
                 2 // gas price threshold
             );
+
             depositContract.setPeer(
-                BASEID, // adminchain ID
+                BASEID,
                 addressToBytes32(opsContractAddress)
             );
         } else if (config == 3) {
-            spendingContract = SmokeSpendingContract(spending_ETH_Address);
-            depositContract = SmokeDepositContract(deposit_ETH_Address);
+            spendingContract = SmokeSpendingContract(spending_ZORA_Address);
+            depositContract = SmokeDepositContract(deposit_ZORA_Address);
             depositContract.addSupportedToken(
-                weth_ETH_Address,
+                weth_ZORA_Address,
                 issuer1NftContractAddress
             );
             depositContract.addSupportedToken(
-                wsteth_ETH_Address,
+                wsteth_ZORA_Address,
                 issuer1NftContractAddress
             );
-            spendingContract.poolDeposit{value: 0.5 * 1e18}(
+            spendingContract.poolDeposit{value: 0.2 * 1e18}(
                 issuer1NftContractAddress
             );
         }
-        else if (config == 7) {
-            spendingContract = SmokeSpendingContract(spending_ETH_Address);
-            uint256 wethBalance = IWETH2(weth_ETH_Address).balanceOf(address(spendingContract));
-            spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);
-        }
+
         vm.stopBroadcast();
     }
 

@@ -2,12 +2,12 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import "../src/SmokeSpendingContract.sol";
-import "../src/AssemblePositionsContract.sol";
-import "../src/SmokeDepositContract.sol";
-import "../src/OperationsContract.sol";
-import "../src/CoreNFTContract.sol";
-import "../src/WstETHOracleReceiver.sol";
+import "../../src/SmokeSpendingContract.sol";
+import "../../src/AssemblePositionsContract.sol";
+import "../../src/SmokeDepositContract.sol";
+import "../../src/OperationsContract.sol";
+import "../../src/CoreNFTContract.sol";
+import "../../src/WstETHOracleReceiver.sol";
 
 contract SetupScript is Script {
     uint32 ARBEID = 40231;

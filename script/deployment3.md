@@ -35,6 +35,12 @@ forge script script/ArbSepoliaSetup.s.sol:SetupScript --chain-id 421614 --rpc-ur
 forge script script/OptSepoliaSetup.s.sol:SetupScript --chain-id 11155420 --rpc-url optimism_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
 forge script script/SepoliaSetup.s.sol:SetupScript --chain-id 11155111 --rpc-url mainnet_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
 
+# withdrwa funds config = 7
+forge script script/ArbSepoliaSetup.s.sol:SetupScript --chain-id 421614 --rpc-url arbitrum_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
+forge script script/BaseSepoliaSetup.s.sol:SetupScript --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
+forge script script/OptSepoliaSetup.s.sol:SetupScript --chain-id 11155420 --rpc-url optimism_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
+forge script script/SepoliaSetup.s.sol:SetupScript --chain-id 11155111 --rpc-url mainnet_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
+
 # Resending stuck txns
 cast send 0x17086242C5EcC58a7cBb828312911c782CA6981e "addSupportedToken(address,address)" 0x4200000000000000000000000000000000000006 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-index 1 -- --resend --priority-gas-price 0.02067243 -vvv
 cast send 0x17086242C5EcC58a7cBb828312911c782CA6981e "addSupportedToken(address,address)" 0x14440344256002a5afaA1403EbdAf4bf9a5499E3 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A --rpc-url base_sepolia --mnemonic-path ../../keys/sandtest --mnemonic-index 1 -- --resend --priority-gas-price 0.02067243 -vvv
