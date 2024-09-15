@@ -28,4 +28,5 @@ interface ISmokeSpendingContract {
     ) external view returns (uint256);
 
     function setInterestRate(address issuerNFT, uint256 newRate) external;
+    function setMaxRepayGas(uint256 _newRepayGas) external;
 }

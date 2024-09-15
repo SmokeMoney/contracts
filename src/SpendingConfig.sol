@@ -75,4 +75,9 @@ contract SpendingConfig is Ownable {
         issuerDataConf.scheduleInterestRate = 0;
         issuerDataConf.scheduleInterestRateTimestamp = 0;
     }
+
+    function setMaxRepayGas(uint256 _newRepayGas) external onlyOwner {
+        spendingContract.setMaxRepayGas(_newRepayGas);
+    }
+
 }

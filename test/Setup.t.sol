@@ -184,7 +184,7 @@ contract Setup is TestHelperOz5 {
         // The user is getting some WETH
         vm.startPrank(user);
 
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         uint256 amount = 10 ether;
         weth.deposit{value: amount}();
         weth.approve(address(depositLocal), 10 * 10**18);

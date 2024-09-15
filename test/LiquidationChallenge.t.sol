@@ -27,8 +27,8 @@ contract DepositTest is Setup {
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
 
-    bytes32 public constant BORROW_TYPEHASH = keccak256(
-        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+    bytes32 private constant BORROW_TYPEHASH = keccak256(
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,address recipient)"
     );
 
 
@@ -40,14 +40,14 @@ contract DepositTest is Setup {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(user2);
-        neighborhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(2.8 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(2.8 * 10**18), timestamp, signatureValidity, uint256(0), false, user2);
         vm.stopPrank();
 
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
         
         vm.startPrank(user);
-        neighborhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(0.19 * 10**18), timestamp, signatureValidity, uint256(0), false);
+        neighborhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(0.19 * 10**18), timestamp, signatureValidity, uint256(0), false, user2);
         vm.stopPrank();
 
         vm.warp(1720963381);
@@ -218,7 +218,8 @@ contract DepositTest is Setup {
         uint256 timestamp,
         uint256 signatureValidityVar,
         uint256 nonce,
-        bool wethBool
+        bool wethBool,
+        address recipient
     ) public {
         bytes memory signature = getIssuersSig(
             lendingContract,
@@ -228,7 +229,8 @@ contract DepositTest is Setup {
             amount,
             timestamp,
             signatureValidityVar,
-            nonce
+            nonce,
+            recipient
         );
 
         lendingContract.borrow(
@@ -238,8 +240,10 @@ contract DepositTest is Setup {
             timestamp,
             signatureValidityVar,
             nonce,
+            recipient,
             wethBool,
-            signature
+            signature,
+            0
         );
     }
 
@@ -251,7 +255,8 @@ contract DepositTest is Setup {
         uint256 amount,
         uint256 timestamp,
         uint256 signatureValidityVar,
-        uint256 nonce
+        uint256 nonce,
+        address recipient
     ) private view returns (bytes memory) {
         bytes32 domainSeparator = keccak256(
             abi.encode(
@@ -272,7 +277,8 @@ contract DepositTest is Setup {
                 amount,
                 timestamp,
                 signatureValidityVar,
-                nonce
+                nonce,
+                recipient
             )
         );
 

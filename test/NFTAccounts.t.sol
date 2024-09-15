@@ -190,36 +190,36 @@ contract DepositTest is Setup {
 
     function testMaxMint() public {
         vm.startPrank(userB);
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         vm.expectRevert();
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         vm.stopPrank();
         vm.prank(issuer1);
         issuer1NftContract.setMaxNFTs(11);
         vm.startPrank(userB);
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         vm.stopPrank();
         assertEq(tokenId,12);
     }
 
     function testMinting() public {
         vm.startPrank(userB);
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         vm.stopPrank();
     }
 
     function testBalanceWithdrawal() public {
         vm.startPrank(userB);
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         vm.stopPrank();
         vm.prank(issuer1);
         issuer1NftContract.withdrawFunds();

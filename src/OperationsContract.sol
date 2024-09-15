@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
@@ -134,9 +135,15 @@ contract OperationsContract is EIP712, Ownable, OApp, OAppOptionsType3 {
             params.primary,
             params.recipientAddress
         )));
-
-        address signer = ECDSA.recover(digest, signature);
-        require(signer == issuers[params.issuerNFT], "Invalid withdraw signature");
+        
+        require(
+            SignatureChecker.isValidSignatureNow(
+                issuers[params.issuerNFT],
+                digest,
+                signature
+            ),
+            "Invalid signature from issuer"
+        );
     }
 
     function _executeWithdrawal(bytes32 recipientAddress, bytes32 token, address issuerNFT, uint256 nftId, uint256 amount, uint32 targetChainId, bytes calldata _extraOptions) internal {

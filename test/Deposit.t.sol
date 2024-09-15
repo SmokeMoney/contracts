@@ -34,7 +34,7 @@ contract DepositTest is Setup {
     function testDeposit() public {
         // Mint an NFT for the user
         vm.startPrank(user);
-        uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         vm.stopPrank();
 
@@ -45,7 +45,7 @@ contract DepositTest is Setup {
     function testWithdraw() public {
         // Mint an NFT for the user
         vm.startPrank(user);
-        uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}();
+        uint256 tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
         depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
         vm.stopPrank();
 

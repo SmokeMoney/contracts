@@ -7,6 +7,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+
 import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IWETH {
@@ -52,9 +54,10 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 timestamp;
         uint256 signatureValidity;
         uint256 nonce;
+        uint256 repayGas;
         bool weth;
-        bool repayGas;
         address recipient;
+        uint256 integrator;
     }
     
     bytes32 private constant BORROW_TYPEHASH = keccak256(
@@ -65,6 +68,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     
     mapping(address => IssuerData) public issuers; // issuer NFT Address -> issuerData
 
+    uint256 public maxRepayGas;
     uint256 public smokeFees;
     uint256 public smokeFeesMaxBps; // 1% maximum total fees
     uint256 public constant SECONDS_PER_YEAR = 31536000;
@@ -73,7 +77,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     address public spendingConfigContract;
 
     event Borrowed(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event BorrowedAndSent(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount, address recipient);
+    event BorrowedAndSent(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount, address recipient, uint256 integrator);
     event Repaid(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
     event AutogasTriggered(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
     event AutogasSpikeTriggered(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
@@ -147,7 +151,8 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 nonce,
         address recipient,
         bool weth,
-        bytes memory signature
+        bytes memory signature,
+        uint256 integrator
     ) external nonReentrant {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(amount > 0, "Borrow amount must be greater than 0");
@@ -167,11 +172,18 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
             nonce,
             recipient
         )));
-        address signer = ECDSA.recover(digest, signature);
-        require(signer == issuerData.issuerAddress, "Invalid signature");
+        
+        require(
+            SignatureChecker.isValidSignatureNow(
+                issuerData.issuerAddress,
+                digest,
+                signature
+            ),
+            "Invalid signature from issuer"
+        );
 
         // _executeBorrow(issuerNFT, nftId, msg.sender, amount, weth);
-        _executeBorrowAndSend(issuerNFT, nftId, msg.sender, amount, msg.sender, weth);
+        _executeBorrowAndSend(issuerNFT, nftId, msg.sender, amount, msg.sender, weth, integrator);
         issuerData.borrowNonces[nftId]++;
     }
 
@@ -180,7 +192,6 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         bytes memory userSignature,
         bytes memory issuerSignature
     ) external nonReentrant {
-        uint256 gasStart = gasleft();
         IssuerData storage issuerData = issuers[params.issuerNFT];
         require(params.amount > 0, "Borrow amount must be greater than 0");
         require(block.timestamp <= params.timestamp + params.signatureValidity, "Signature expired");
@@ -190,15 +201,14 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         
         // The borrower can be different from the signer. The signer signs with borrower's address in the signature. 
         // The issuer verifies that the signature is from the signer himself. If not he won't approve it. 
-        address signer = _validateSignatures(params, userSignature, issuerSignature);
+        _validateSignatures(params, userSignature, issuerSignature);
 
-        _executeBorrowAndSend(params.issuerNFT, params.nftId, signer, params.amount, params.recipient, params.weth);
+        _executeBorrowAndSend(params.issuerNFT, params.nftId, params.borrower, params.amount, params.recipient, params.weth, params.integrator);
         
-        if (params.repayGas) {
-            uint256 paymentAmount = (gasStart - gasleft()) * tx.gasprice * 2;
-            _executeBorrowAndSend(params.issuerNFT, params.nftId, signer, paymentAmount, msg.sender, params.weth);
+        if (params.repayGas>0) {
+            require(params.repayGas <= maxRepayGas, "Repay gas exceeds max repay");
+            _executeBorrowAndSend(params.issuerNFT, params.nftId, params.borrower, params.repayGas, msg.sender, params.weth, 0);
         }
-        
         issuers[params.issuerNFT].borrowNonces[params.nftId]++;
     }
 
@@ -206,7 +216,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         BorrowParams memory params,
         bytes memory userSignature,
         bytes memory issuerSignature
-    ) internal view returns (address) {
+    ) internal view {
 
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
             BORROW_TYPEHASH,
@@ -219,14 +229,26 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
             params.nonce,
             params.recipient
         )));
-        address signer = ECDSA.recover(digest, userSignature);
-        require(signer == params.borrower, "Invalid signature, wrong signer");
-        require(ECDSA.recover(digest, issuerSignature) == issuers[params.issuerNFT].issuerAddress, "Invalid signature");
-
-        return signer;
+        require(
+            SignatureChecker.isValidSignatureNow(
+                params.borrower,
+                digest,
+                userSignature
+            ),
+            "Invalid signature from borrower"
+        );
+    
+        require(
+            SignatureChecker.isValidSignatureNow(
+                issuers[params.issuerNFT].issuerAddress,
+                digest,
+                issuerSignature
+            ),
+            "Invalid signature from issuer"
+        );
     }
 
-    function _executeBorrowAndSend(address issuerNFT, uint256 nftId, address signer, uint256 amount, address recipient, bool weth) internal {
+    function _executeBorrowAndSend(address issuerNFT, uint256 nftId, address signer, uint256 amount, address recipient, bool weth, uint256 integrator) internal {
         IssuerData storage issuerData = issuers[issuerNFT];
         BorrowPosition storage borrowPosition = issuerData.borrowPositions[nftId][signer];
         
@@ -263,7 +285,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         borrowPosition.timestamp = block.timestamp;
         issuerData.poolDeposited -= amount;
 
-        emit BorrowedAndSent(issuerNFT, nftId, signer, amount, recipient);
+        emit BorrowedAndSent(issuerNFT, nftId, signer, amount, recipient, integrator);
     }
 
     function _payBackIssuer(address issuerNFT, uint256 nftId, address signer, uint256 amount) internal {
@@ -283,30 +305,14 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         return false;
     }
 
-    function triggerAutogas(address issuerNFT, uint256 nftId, address wallet) external onlyIssuer(issuerNFT) {
-        uint256 gasStart = gasleft();
+    function triggerAutogas(address issuerNFT, uint256 nftId, address wallet, uint256 repayGas) external onlyIssuer(issuerNFT) {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
 
-        _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
-        uint256 gasUsed = gasStart - gasleft();
-        uint256 paymentAmount = gasUsed * tx.gasprice * 2;
-        _payBackIssuer(issuerNFT, nftId, wallet, paymentAmount);
+        _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false, 0);
+        require(repayGas <= maxRepayGas, "Repay gas exceeds max repay");
+        _payBackIssuer(issuerNFT, nftId, wallet, repayGas);
         emit AutogasTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
-    }
-
-    function triggerAutogasSpike(address issuerNFT, uint256 nftId, address wallet) external onlyIssuer(issuerNFT) {
-        uint256 gasStart = gasleft();
-        IssuerData storage issuerData = issuers[issuerNFT];
-        require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
-        require(issuerData.gasPriceThreshold <= tx.gasprice, "Gas price is below threshold");
-
-        _executeBorrowAndSend(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount, wallet, false);
-        uint256 gasUsed = gasStart - gasleft();
-        uint256 paymentAmount = gasUsed * tx.gasprice * 2;
-        _payBackIssuer(issuerNFT, nftId, wallet, paymentAmount);
-
-        emit AutogasSpikeTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
     }
 
     function repay(address issuerNFT, uint256 nftId, address wallet, address refundAddress) external payable nonReentrant {
@@ -451,6 +457,10 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     function setSmokeFees(uint256 _newFees) external onlySpendingConfig {
         // require(smokeFees<42e12, 'fees too high');
         smokeFees = _newFees;
+    }
+
+    function setMaxRepayGas(uint256 _newRepayGas) external onlySpendingConfig {
+        maxRepayGas = _newRepayGas;
     }
 
     function setSmokeFeesMaxBps(uint256 _newFeesMaxBps) external onlySpendingConfig {

@@ -95,7 +95,7 @@ contract BorrowTest is TestHelperOz5 {
         weth.deposit{value: amount}();
 
         // User mints the NFT and user setup
-        tokenId = nftContract.mint{value: 0.02 * 1e18}();
+        tokenId = nftContract.mint{value: 0.02 * 1e18}(0);
         vm.stopPrank();
 
         vm.warp(1720962281);
@@ -112,7 +112,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(0),
-            false
+            false,
+            user2
         );
         weth.deposit{value: 0.0095 * 10 ** 18}();
         vm.stopPrank();
@@ -126,8 +127,8 @@ contract BorrowTest is TestHelperOz5 {
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
 
-    bytes32 public constant BORROW_TYPEHASH = keccak256(
-        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,bool weth)"
+    bytes32 private constant BORROW_TYPEHASH = keccak256(
+        "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,address recipient)"
     );
 
 
@@ -140,7 +141,8 @@ contract BorrowTest is TestHelperOz5 {
         uint256 timestamp,
         uint256 signatureValidityVar,
         uint256 nonce,
-        bool wethBool
+        bool wethBool,
+        address recipient
     ) public {
         bytes memory signature = getIssuersSig(
             lendingContract,
@@ -150,7 +152,8 @@ contract BorrowTest is TestHelperOz5 {
             amount,
             timestamp,
             signatureValidityVar,
-            nonce
+            nonce,
+            recipient
         );
 
         lendingContract.borrow(
@@ -160,57 +163,64 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidityVar,
             nonce,
+            recipient,
             wethBool,
-            signature
+            signature,
+            0
         );
     }
 
     function neighborhoodBorrowWithSig(
         SmokeSpendingContract lendingContract,
-        address recipeint,
+        address borrower,
         address issuerNFT,
         uint256 nftId,
         uint256 amount,
         uint256 timestamp,
         uint256 signatureValidityVar,
         uint256 nonce,
+        uint256 repayGas,
         bool wethBool,
-        bool repayGas
+        address recipient
     ) public {
 
         bytes memory userSignature = getUsersSig(
             lendingContract,
-            recipeint,
+            borrower,
             issuerNFT,
             nftId,
             amount,
             timestamp,
             signatureValidityVar,
-            nonce
+            nonce,
+            recipient
         );
 
-        bytes memory issuersSignature = getIssuersSig2(
+        bytes memory issuersSignature = getIssuersSig(
             lendingContract,
-            recipeint,
+            borrower,
             issuerNFT,
             nftId,
             amount,
             timestamp,
             signatureValidityVar,
-            nonce
+            nonce,
+            recipient
         );
 
         SmokeSpendingContract.BorrowParams memory params = SmokeSpendingContract
             .BorrowParams({
+                borrower: borrower,
                 issuerNFT: issuerNFT,
                 nftId: nftId,
                 amount: amount,
                 timestamp: timestamp,
                 signatureValidity: signatureValidityVar,
                 nonce: nonce,
-                weth: wethBool,
                 repayGas: repayGas,
-                recipient: recipeint
+                weth: wethBool,
+                recipient: recipient,
+                integrator: 0
             });
 
         lendingContract.borrowWithSignature(
@@ -228,7 +238,8 @@ contract BorrowTest is TestHelperOz5 {
         uint256 amount,
         uint256 timestamp,
         uint256 signatureValidityVar,
-        uint256 nonce
+        uint256 nonce,
+        address recipient
     ) private view returns (bytes memory) {
         bytes32 domainSeparator = keccak256(
             abi.encode(
@@ -249,7 +260,8 @@ contract BorrowTest is TestHelperOz5 {
                 amount,
                 timestamp,
                 signatureValidityVar,
-                nonce
+                nonce,
+                recipient
             )
         );
 
@@ -311,7 +323,8 @@ contract BorrowTest is TestHelperOz5 {
         uint256 amount,
         uint256 timestamp,
         uint256 signatureValidityVar,
-        uint256 nonce
+        uint256 nonce,
+        address recipient
     ) private view returns (bytes memory) {
         bytes32 domainSeparator = keccak256(
             abi.encode(
@@ -332,7 +345,8 @@ contract BorrowTest is TestHelperOz5 {
                 amount,
                 timestamp,
                 signatureValidityVar,
-                nonce
+                nonce,
+                recipient
             )
         );
 
@@ -359,7 +373,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(1),
-            false
+            false,
+            user2
         );
         vm.stopPrank();
         console.log("blockstamp", timestamp);
@@ -382,7 +397,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(2),
-            false
+            false,
+            user2
         );
         vm.stopPrank();
         console.log("blockstamp", timestamp);
@@ -502,7 +518,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(1),
-            false
+            false,
+            user2
         );
         vm.stopPrank();
     }
@@ -512,7 +529,8 @@ contract BorrowTest is TestHelperOz5 {
         uint256 timestamp = vm.getBlockTimestamp();
         // Mint an NFT for the user
         vm.startPrank(issuer);
-        neighborhoodBorrowWithSig(lendingcontract, 0xa2A53973a147F2996F3f33c363Af0f22Dc46c549, 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A, 0, 0.00042 * 10 ** 18, timestamp, 120, 0, false, true);
+        // neighborhoodBorrowWithSig(lendingcontract, 0xa2A53973a147F2996F3f33c363Af0f22Dc46c549, 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A, 0, 0.00042 * 10 ** 18, timestamp, 120, 0, false, true);
+        neighborhoodBorrowWithSig(lendingcontract, address(user), address(nftContract), tokenId, 0.042 * 10 ** 18, timestamp, 120, 1, 0, true, address(user));
         vm.stopPrank();
     }
 
@@ -542,7 +560,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(1),
-            false
+            false,
+            user2
         );
         vm.stopPrank();
 
@@ -551,19 +570,19 @@ contract BorrowTest is TestHelperOz5 {
         timestamp = vm.getBlockTimestamp();
         vm.txGasPrice(1);
         vm.startPrank(issuer);
-        neighborhoodBorrowWithSig(lendingcontract, user, address(nftContract), tokenId, 10 * 10 ** 18, timestamp, signatureValidity, 2, false, true);
+        neighborhoodBorrowWithSig(lendingcontract, user, address(nftContract), tokenId, 10 * 10 ** 18, timestamp, signatureValidity, 2, 0, true, user);
         vm.stopPrank();
 
         vm.warp(1720963281);
         vm.prank(issuer);
-        lendingcontract.triggerAutogas(address(nftContract), tokenId, user4);
+        lendingcontract.triggerAutogas(address(nftContract), tokenId, user4, 0);
 
         vm.txGasPrice(2);
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
 
         vm.startPrank(user3);
-        tokenId = nftContract.mint{value: 0.02 * 1e18}();
+        tokenId = nftContract.mint{value: 0.02 * 1e18}(0);
         neighborhoodBorrow(
             lendingcontract,
             user3,
@@ -573,7 +592,8 @@ contract BorrowTest is TestHelperOz5 {
             timestamp,
             signatureValidity,
             uint256(0),
-            false
+            false,
+            user3
         );
 
         uint256[] memory borrowAmounts = new uint256[](4);
@@ -638,7 +658,7 @@ contract BorrowTest is TestHelperOz5 {
 
         console.log("issuer balance", issuer.balance);
         vm.startPrank(issuer);
-        lendingcontract.triggerAutogas(address(nftContract), tokenId, user2);
+        lendingcontract.triggerAutogas(address(nftContract), tokenId, user2, 0);
         console.log("issuer balance", issuer.balance);
         console.log(user2.balance);
         vm.stopPrank();
@@ -650,11 +670,6 @@ contract BorrowTest is TestHelperOz5 {
         vm.startPrank(issuer);
         console.log(user2.balance);
         vm.txGasPrice(2);
-        lendingcontract.triggerAutogasSpike(
-            address(nftContract),
-            tokenId,
-            user2
-        );
         vm.stopPrank();
         vm.startPrank(issuer);
         console.log("After autogas", address(42).balance);

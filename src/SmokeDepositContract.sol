@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
@@ -163,7 +164,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         bytes memory signature,
         address issuerAddress
     ) internal view {
-        bytes32 structHash = keccak256(abi.encode(
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
             SECONDARY_WITHDRAW_TYPEHASH,
             params.issuerNFT,
             params.token,
@@ -174,11 +175,16 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
             params.nonce,
             params.primary,
             params.recipientAddress
-        ));
-
-        bytes32 hash = _hashTypedDataV4(structHash);
-        address signer = ECDSA.recover(hash, signature);
-        require(signer == issuerAddress, "Invalid withdraw signature");
+        )));
+        
+        require(
+            SignatureChecker.isValidSignatureNow(
+                issuerAddress,
+                digest,
+                signature
+            ),
+            "Invalid signature from issuer"
+        );
     }
 
     function executeWithdrawal(bytes32 recipientBytes32, bytes32 tokenBytes32, address issuerNFT, uint256 nftId, uint256 amount) public nonReentrant {
