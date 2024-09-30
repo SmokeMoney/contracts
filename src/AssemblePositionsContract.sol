@@ -6,7 +6,7 @@ import "./interfaces/ICoreNFTContract.sol";
 import "./interfaces/IWstETHOracleReceiver.sol";
 import "./interfaces/IDepositContract.sol";
 
-import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+import { console2 } from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
 contract AssemblePositionsContract {
     using ECDSA for bytes32;
 

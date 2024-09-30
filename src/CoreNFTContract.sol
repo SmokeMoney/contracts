@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
-import { console2 } from "forge-std/Test.sol"; // TODO REMOVE AFDTRER TEST
+import { console2 } from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     using ECDSA for bytes32;

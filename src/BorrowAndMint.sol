@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import "forge-std/console2.sol";
+import "forge-std/src/console2.sol";
 
 interface IBorrowContract {
     struct BorrowParams {
@@ -36,17 +36,16 @@ interface INFTMintContract is IERC721 {
 
 contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
     IBorrowContract public borrowContract;
-    INFTMintContract public nftMintContract;
 
-    constructor(address _borrowContract, address _nftMintContract) Ownable(msg.sender) {
+    constructor(address _borrowContract) Ownable(msg.sender) {
         borrowContract = IBorrowContract(_borrowContract);
-        nftMintContract = INFTMintContract(_nftMintContract);
     }
 
     function borrowAndMint(
         IBorrowContract.BorrowParams memory borrowParams,
         bytes memory userSignature,
-        bytes memory issuerSignature
+        bytes memory issuerSignature,
+        address _nftMintContract
     ) external nonReentrant {
         require(!borrowParams.weth, "Must borrow ETH for minting");
         require(borrowParams.recipient == address(this), "Recipient must be this contract");
@@ -58,6 +57,7 @@ contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
         require(borrowedAmount == borrowParams.amount + borrowParams.repayGas, "Borrowed amount doesn't match expected amount");
 
         // User actions here
+        INFTMintContract nftMintContract = INFTMintContract(_nftMintContract);
         uint256 newTokenId = nftMintContract.mint{value: borrowParams.amount}();
         nftMintContract.safeTransferFrom(address(this), borrowParams.borrower, newTokenId);
         // User actions end here
@@ -66,10 +66,6 @@ contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
             (bool success, ) = msg.sender.call{value: borrowParams.repayGas}("");
             require(success, "Failed to send repayGas to msg.sender");
         }
-    }
-
-    function justMint(uint256 amount) external payable {
-        nftMintContract.mint{value: amount}();
     }
 
     // Implement IERC721Receiver

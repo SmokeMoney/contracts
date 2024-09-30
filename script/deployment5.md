@@ -72,6 +72,9 @@ forge script script/MorphSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 3 --c
 # NFT migration
 forge script script/BaseSepoliaMigrate.s.sol:SetupScript --sig "run(uint8)" 8 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
 
+# Borrow and Mint
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 1 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+
 
 # Random shit
 

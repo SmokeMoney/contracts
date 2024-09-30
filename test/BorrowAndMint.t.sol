@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol"; // Import console for logging
+import "forge-std/src/Test.sol";
+import "forge-std/src/console.sol"; // Import console for logging
 import "../src/CoreNFTContract.sol";
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
@@ -13,39 +13,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {TestHelperOz5} from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
 
-
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
-
-contract SimpleNFT is ERC721, Ownable {
-    using Counters for Counters.Counter;
-    Counters.Counter private _tokenIds;
-
-    uint256 public constant MINT_PRICE = 0.002 ether;
-    uint256 public constant MAX_SUPPLY = 1000;
-
-    constructor() ERC721("Smoke NFT Optimism", "SNFT") Ownable(msg.sender) {}
-
-    function mint() public payable returns (uint256) {
-        require(msg.value >= MINT_PRICE, "Insufficient payment");
-        require(_tokenIds.current() < MAX_SUPPLY, "Max supply reached");
-
-        _tokenIds.increment();
-        uint256 newTokenId = _tokenIds.current();
-        _safeMint(msg.sender, newTokenId);
-        return newTokenId;
-    }
-
-    function withdraw() public onlyOwner {
-        uint256 balance = address(this).balance;
-        payable(owner()).transfer(balance);
-    }
-
-    function totalSupply() public view returns (uint256) {
-        return _tokenIds.current();
-    }
-}
+import "../src/SimpleNFT.sol";
 
 contract BorrowTest is TestHelperOz5 {
     using ECDSA for bytes32;
@@ -109,7 +77,7 @@ contract BorrowTest is TestHelperOz5 {
         siggen = new SignatureGenerator();
         lendingcontract = new SmokeSpendingContract(address(weth), address(owner));
         smokeNFT = new SimpleNFT();
-        borrowAndM = new BorrowAndMintNFT(address(lendingcontract), address(smokeNFT));
+        borrowAndM = new BorrowAndMintNFT(address(lendingcontract));
         spendingConfig = new SpendingConfig(owner, address(lendingcontract));
         vm.stopPrank();
         
@@ -221,10 +189,10 @@ contract BorrowTest is TestHelperOz5 {
 
         vm.startPrank(user2);
         console.log(user2.balance);
-        borrowAndM.borrowAndMint(params, userSignature, issuersSignature);
+        borrowAndM.borrowAndMint(params, userSignature, issuersSignature, address(smokeNFT));
         console.log(user.balance);
         console.log(smokeNFT.balanceOf(user));
-        borrowAndM.justMint{value:0.002 * 1e18}(0.002 * 1e18);
+        // borrowAndM.justMint{value:0.002 * 1e18}(0.002 * 1e18);
         vm.stopPrank();
     }
 
