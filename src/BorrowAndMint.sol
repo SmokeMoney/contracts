@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -49,6 +49,8 @@ contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
     ) external nonReentrant {
         require(!borrowParams.weth, "Must borrow ETH for minting");
         require(borrowParams.recipient == address(this), "Recipient must be this contract");
+
+        console2.log("asdfasdgfnasgvsdfavdf");
         uint256 initialBalance = address(this).balance;
         
         borrowContract.borrowWithSignature(borrowParams, userSignature, issuerSignature);

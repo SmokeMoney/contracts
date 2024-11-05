@@ -26,6 +26,18 @@ depositContract 0x74f96Ed7d11e9028352F44345F4A1D35bDF7d0E4
 spendingContract 0x9b6f6F895a011c2C90857596A1AE2f537B097f52
 depositContract 0xF4D2D99b401859c7b825D145Ca76125455154245
 
+# Scroll deployment
+spendingContract 0xf77b584B9164d77545626d5D4263ab7a0fffeB8e
+depositContract 0xC14C686160419cA628fAEE22475109A0c42f381f
+
+# Linea deployment
+spendingContract 0xd5E66533E354A1F8cb46D7a4867d1CED40b7EeA2
+depositContract 0x9893c446998354c4139CE7109b1f28826c2A3c92
+
+# zkSync deployment
+spendingContract 0xDEdec1fA89B6BEf042fDdEe4dA2caFbB2e42f85B
+depositContract 0x2ec27C3aF391CDcEc38F2C7C48Ee8dde34F03886
+
 # withdrwa funds config = 7
 forge script script/ArbSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 7 --chain-id 421614 --rpc-url arbitrum_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
 forge script script/BaseSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 7 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
@@ -73,7 +85,26 @@ forge script script/MorphSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 3 --c
 forge script script/BaseSepoliaMigrate.s.sol:SetupScript --sig "run(uint8)" 8 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 1 --broadcast -vvv
 
 # Borrow and Mint
-forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 1 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 0 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 1 --chain-id 421614 --rpc-url arbitrum_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 2 --chain-id 11155420 --rpc-url optimism_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 3 --chain-id 11155111 --rpc-url mainnet_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 4 --chain-id 999999999 --rpc-url zora_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/BorrowAndMint.s.sol:SetupScript --sig "run(uint8, uint8)" 1 5 --chain-id 168587773 --rpc-url blast_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+
+# Spending Config
+
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 0 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 1 --chain-id 421614 --rpc-url arbitrum_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 2 --chain-id 11155420 --rpc-url optimism_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 3 --chain-id 11155111 --rpc-url mainnet_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 4 --chain-id 999999999 --rpc-url zora_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 5 --chain-id 168587773 --rpc-url blast_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+
+# New Chains UNICHAIN AND ODYSSEY
+forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 0 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 10 --chain-id 911867 --rpc-url odyssey_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 11 --chain-id 1301 --rpc-url unichain_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
 
 
 # Random shit

@@ -14,9 +14,10 @@ contract SetupScript is Script {
     uint32 ETHEID = 40161;
     uint32 OPTEID = 40232;
     uint32 BASEID = 40245;
-    uint32 ZORAID = 40287;
+    uint32 ZORAID = 40249;
     uint32 BLASTID = 40243;
-
+    uint32 SCROLLID = 40170;
+    
 
     WstETHOracleReceiver wstETHOracle;
     AssemblePositionsContract assemblePositionsContract;
@@ -145,6 +146,7 @@ contract SetupScript is Script {
             issuer1NftContract.approveChain(BASEID);
             issuer1NftContract.approveChain(ZORAID);
             issuer1NftContract.approveChain(BLASTID);
+            issuer1NftContract.approveChain(SCROLLID);
 
             issuer1NftContract.setDefaultNativeCredit(10000000000000000);
 

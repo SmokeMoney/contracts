@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: CTOSL
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -8,7 +8,7 @@ contract SimpleNFT is ERC721, Ownable {
     uint256 private _tokenIds;
 
     uint256 public constant MINT_PRICE = 0.002 ether;
-    uint256 public constant MAX_SUPPLY = 1000;
+    uint256 public constant MAX_SUPPLY = 100000;
 
     constructor() ERC721("Smoke NFT", "SNFT") Ownable(msg.sender) {}
 

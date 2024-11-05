@@ -14,7 +14,7 @@ contract SetupScript is Script {
     uint32 ETHEID = 40161;
     uint32 OPTEID = 40232;
     uint32 BASEID = 40245;
-    uint32 ZORAID = 40287;
+    uint32 ZORAID = 40249;
     uint32 BLASTID = 40243;
 
 

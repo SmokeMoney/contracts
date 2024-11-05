@@ -65,6 +65,8 @@ contract SetupScript is Script {
                 owner
             );
             console.log("depositContract", address(depositContract));
+            console.logBytes32(addressToBytes32(opsContractAddress));
+            
 
             spendingContract.addIssuer(
                 issuer1NftContractAddress,
