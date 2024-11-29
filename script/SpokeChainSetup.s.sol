@@ -38,6 +38,7 @@ contract SetupScript is Script {
     constructor() {
         setupAddresses();
     }
+
     function setupAddresses() internal {
         spendingAddresses[0] = payable(0x67077b70711026CE9d7C3f591D45924264a0c65b); // BASE
         spendingAddresses[1] = payable(0xACdB62538dB30EF5F9Cdb4F7E0640f856708449d); // ARB
@@ -97,7 +98,7 @@ contract SetupScript is Script {
         nftAddresses[3] = 0xe06883A0caaFe865F23597AdEDC7af4cBEaBA7E2; // ETH
         nftAddresses[4] = 0x9b6f6F895a011c2C90857596A1AE2f537B097f52; // ZORA
         nftAddresses[5] = 0x244a4b538171D0b5b7f8Ff70812CaE1d43886183; // BLAST
-        
+
         chainIds[0] = 40245; // BASE
         chainIds[1] = 40231; // ARB
         chainIds[2] = 40232; // OPT
@@ -207,19 +208,16 @@ contract SetupScript is Script {
 
     address owner = 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140;
     address issuer1 = 0xE0D6f93151091f24EA09474e9271BD60F2624d99;
- 
+
     address issuer1NftContractAddress = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
     address opsContractAddress = 0x3d4CF5232061744CA5E72eAB6624C96750D71EC2;
-    
+
     function run(uint8 config, uint8 chain) external {
         vm.startBroadcast();
         if (config == 1) {
             // setting up all the contracts from scratch
 
-            spendingContract = new SmokeSpendingContract(
-                wethAddresses[chain],
-                owner
-            );
+            spendingContract = new SmokeSpendingContract(wethAddresses[chain], owner);
             console.log("spendingContract", address(spendingContract));
 
             depositContract = new SmokeDepositContract(
@@ -233,7 +231,7 @@ contract SetupScript is Script {
                 owner
             );
             console.log("depositContract", address(depositContract));
-            
+
             spendingContract.addIssuer(
                 issuer1NftContractAddress,
                 issuer1,
@@ -247,24 +245,14 @@ contract SetupScript is Script {
                 chainIds[100], // adminchain ID
                 addressToBytes32(opsContractAddress)
             );
-
         } else if (config == 3) {
             spendingContract = SmokeSpendingContract(spendingAddresses[chain]);
             depositContract = SmokeDepositContract(depositAddresses[chain]);
-            spendingContract.poolDeposit{value: 0.5 * 1e18}(
-                issuer1NftContractAddress
-            );
+            spendingContract.poolDeposit{value: 0.5 * 1e18}(issuer1NftContractAddress);
 
-            depositContract.addSupportedToken(
-                wethAddresses[chain],
-                issuer1NftContractAddress
-            );
-            depositContract.addSupportedToken(
-                wstethAddresses[chain],
-                issuer1NftContractAddress
-            );
-        }
-        else if (config == 7) {
+            depositContract.addSupportedToken(wethAddresses[chain], issuer1NftContractAddress);
+            depositContract.addSupportedToken(wstethAddresses[chain], issuer1NftContractAddress);
+        } else if (config == 7) {
             spendingContract = SmokeSpendingContract(spendingAddresses[chain]);
             uint256 wethBalance = IWETH2(wethAddresses[chain]).balanceOf(address(spendingContract));
             spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);

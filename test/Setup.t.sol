@@ -9,18 +9,20 @@ import "../src/SmokeSpendingContract.sol";
 import "../src/AssemblePositionsContract.sol";
 import "../src/WstETHOracleReceiver.sol";
 
-
 import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
-import { OptionsBuilder } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
-import { IOAppOptionsType3, EnforcedOptionParam } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
+import {TestHelperOz5} from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
+import {OptionsBuilder} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
+import {
+    IOAppOptionsType3,
+    EnforcedOptionParam
+} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 
 contract MockERC20 is ERC20 {
     constructor() ERC20("Wrapped stETH", "wstETH") {
-        _mint(msg.sender, 1000000 * 10**18);
+        _mint(msg.sender, 1000000 * 10 ** 18);
     }
 }
 
@@ -33,9 +35,8 @@ contract CrossDomainMessenger {
 contract Setup is TestHelperOz5 {
     using ECDSA for bytes32;
     using OptionsBuilder for bytes;
-    
-    uint256 ETH_TO_WEI = 10 ** 18;
 
+    uint256 ETH_TO_WEI = 10 ** 18;
 
     uint32 aEid = 1;
     uint32 bEid = 2;
@@ -64,8 +65,8 @@ contract Setup is TestHelperOz5 {
     SmokeSpendingContract public lendingcontractD;
     SmokeSpendingContract public lendingcontractC;
     SignatureGenerator public siggen;
-    
-    WETH public weth;   
+
+    WETH public weth;
     MockERC20 public wstETH;
     address public owner;
     address public issuer1;
@@ -74,8 +75,7 @@ contract Setup is TestHelperOz5 {
     uint256 public adminChainIdReal;
     uint256 tokenId;
 
-
-    function setUp() public virtual override{
+    function setUp() public virtual override {
         (issuer1, issuer1Pk) = makeAddrAndKey("issuer");
 
         vm.deal(user2, 1000 ether);
@@ -90,17 +90,16 @@ contract Setup is TestHelperOz5 {
         user2 = address(3);
         owner = address(this);
         adminChainIdReal = 1;
-        
+
         vm.startPrank(issuer1);
         wstETH = new MockERC20();
-        wstETH.transfer(user, 1000 * 10**18);
+        wstETH.transfer(user, 1000 * 10 ** 18);
         weth = new WETH();
         issuer1NftContract = new CoreNFTContract("AutoGas", "OG", issuer1, 0.02 * 1e18, 10);
         vm.stopPrank();
 
-
         issuer1NftAddress = address(issuer1NftContract);
-        
+
         lendingcontract = new SmokeSpendingContract(address(weth), owner);
         lendingcontractB = new SmokeSpendingContract(address(weth), owner);
         lendingcontractC = new SmokeSpendingContract(address(weth), owner);
@@ -111,28 +110,89 @@ contract Setup is TestHelperOz5 {
 
         assemblePositionsContract = new AssemblePositionsContract(address(wstETHOracle));
         vm.prank(address(l2_messenger));
-        wstETHOracle.setWstETHRatio(1.17*1e18);
+        wstETHOracle.setWstETHRatio(1.17 * 1e18);
 
         accountOps = OperationsContract(
-            payable(_deployOApp(type(OperationsContract).creationCode, abi.encode(address(endpoints[aEid]), address(assemblePositionsContract), address(this), 1)))
+            payable(
+                _deployOApp(
+                    type(OperationsContract).creationCode,
+                    abi.encode(address(endpoints[aEid]), address(assemblePositionsContract), address(this), 1)
+                )
+            )
         );
 
         assemblePositionsContract.setOperationsContract(address(accountOps));
 
         depositLocal = SmokeDepositContract(
-            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(accountOps), address(lendingcontract), address(weth), address(wstETH), 1, aEid, address(endpoints[aEid]), address(this))))
+            payable(
+                _deployOApp(
+                    type(SmokeDepositContract).creationCode,
+                    abi.encode(
+                        address(accountOps),
+                        address(lendingcontract),
+                        address(weth),
+                        address(wstETH),
+                        1,
+                        aEid,
+                        address(endpoints[aEid]),
+                        address(this)
+                    )
+                )
+            )
         );
 
         depositCrossB = SmokeDepositContract(
-            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractB), address(weth), address(wstETH), 1, bEid, address(endpoints[bEid]), address(this))))
+            payable(
+                _deployOApp(
+                    type(SmokeDepositContract).creationCode,
+                    abi.encode(
+                        address(0),
+                        address(lendingcontractB),
+                        address(weth),
+                        address(wstETH),
+                        1,
+                        bEid,
+                        address(endpoints[bEid]),
+                        address(this)
+                    )
+                )
+            )
         );
 
         depositCrossC = SmokeDepositContract(
-            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractC), address(weth), address(wstETH), 1, cEid, address(endpoints[cEid]), address(this))))
+            payable(
+                _deployOApp(
+                    type(SmokeDepositContract).creationCode,
+                    abi.encode(
+                        address(0),
+                        address(lendingcontractC),
+                        address(weth),
+                        address(wstETH),
+                        1,
+                        cEid,
+                        address(endpoints[cEid]),
+                        address(this)
+                    )
+                )
+            )
         );
 
         depositCrossD = SmokeDepositContract(
-            payable(_deployOApp(type(SmokeDepositContract).creationCode, abi.encode(address(0), address(lendingcontractD), address(weth), address(wstETH), 1, dEid, address(endpoints[dEid]), address(this))))
+            payable(
+                _deployOApp(
+                    type(SmokeDepositContract).creationCode,
+                    abi.encode(
+                        address(0),
+                        address(lendingcontractD),
+                        address(weth),
+                        address(wstETH),
+                        1,
+                        dEid,
+                        address(endpoints[dEid]),
+                        address(this)
+                    )
+                )
+            )
         );
 
         // console.log("Set up all the contracts, ny: ", issuer1);
@@ -158,8 +218,8 @@ contract Setup is TestHelperOz5 {
         accountOps.setDepositContract(dEid, address(depositCrossD)); // Adding the deposit contract on a diff chain
 
         vm.startPrank(issuer1);
-        
-        wstETH.transfer(user, 1000 * 10**18);
+
+        wstETH.transfer(user, 1000 * 10 ** 18);
         siggen = new SignatureGenerator();
         depositCrossB.addSupportedToken(address(weth), issuer1NftAddress);
         depositCrossC.addSupportedToken(address(weth), issuer1NftAddress);
@@ -184,24 +244,20 @@ contract Setup is TestHelperOz5 {
         // The user is getting some WETH
         vm.startPrank(user);
 
-        tokenId = issuer1NftContract.mint{value:0.02*1e18}(0);
+        tokenId = issuer1NftContract.mint{value: 0.02 * 1e18}(0);
         uint256 amount = 10 ether;
         weth.deposit{value: amount}();
-        weth.approve(address(depositLocal), 10 * 10**18);
-        weth.approve(address(depositCrossB), 10 * 10**18);
-        wstETH.approve(address(depositCrossD), 10 * 10**18);
-
+        weth.approve(address(depositLocal), 10 * 10 ** 18);
+        weth.approve(address(depositCrossB), 10 * 10 ** 18);
+        wstETH.approve(address(depositCrossD), 10 * 10 ** 18);
 
         depositCrossB.depositETH{value: 1e18}(issuer1NftAddress, tokenId, 1e18);
         depositLocal.depositETH{value: 1e18}(issuer1NftAddress, tokenId, 1e18);
-        depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10**18);
-        depositCrossD.deposit(issuer1NftAddress, address(wstETH), tokenId, 1 * 10**18);
-
+        depositLocal.deposit(issuer1NftAddress, address(weth), tokenId, 1 * 10 ** 18);
+        depositCrossD.deposit(issuer1NftAddress, address(wstETH), tokenId, 1 * 10 ** 18);
     }
 
     function setupRateLimits() public virtual {
-
-
         uint256[] memory chainIds = new uint256[](4);
         chainIds[0] = aEid;
         chainIds[1] = bEid;
@@ -209,35 +265,31 @@ contract Setup is TestHelperOz5 {
         chainIds[3] = dEid;
 
         uint256[] memory amounts = new uint256[](4);
-        amounts[0] = 1.1 * 10**18;
-        amounts[1] = 2 * 10**18;
-        amounts[2] = 0.1 * 10**18;
-        amounts[3] = 0 * 10**18;
+        amounts[0] = 1.1 * 10 ** 18;
+        amounts[1] = 2 * 10 ** 18;
+        amounts[2] = 0.1 * 10 ** 18;
+        amounts[3] = 0 * 10 ** 18;
 
         bool[] memory autogas = new bool[](4);
         autogas[0] = true;
         autogas[1] = false;
         autogas[2] = true;
         autogas[3] = true;
-        
+
         issuer1NftContract.setHigherBulkLimits(tokenId, addressToBytes32(address(user)), chainIds, amounts, autogas);
-        amounts[0] = 0 * 10**18;
-        amounts[1] = 2 * 10**18;
-        amounts[2] = 10 * 10**18;
-        amounts[3] = 0.3 * 10**18;
+        amounts[0] = 0 * 10 ** 18;
+        amounts[1] = 2 * 10 ** 18;
+        amounts[2] = 10 * 10 ** 18;
+        amounts[3] = 0.3 * 10 ** 18;
         issuer1NftContract.setHigherBulkLimits(tokenId, addressToBytes32(address(user2)), chainIds, amounts, autogas);
 
         console.log("Amoutn deposited, limits set");
         vm.stopPrank();
-        
-        assertEq(depositCrossB.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 1 * 10**18);
 
+        assertEq(depositCrossB.getDepositAmount(issuer1NftAddress, tokenId, address(weth)), 1 * 10 ** 18);
     }
 
     function superSetup() public virtual {
-
         super.setUp();
     }
-
-
 }

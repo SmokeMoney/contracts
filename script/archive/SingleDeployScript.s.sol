@@ -34,14 +34,10 @@ contract SetupScript is Script {
     address deposit_OPT_Address = 0x34e7CEBC535C30Aceeb63a63C20b0C42A80B215A;
     address deposit_BAS_Address;
 
-    address payable spending_ARB_Address =
-        payable(0x9F1b8D30D9e86B3bF65fa9f91722B4A3E9802382);
-    address payable spending_ETH_Address =
-        payable(0xC4e5BC86C3CAEd72dB41e62675f27b239Cb23bc6);
-    address payable spending_OPT_Address =
-        payable(0x4AA5F077688ba0d53836A3B9E9FDC3bFB16B1362);
-    address payable spending_BAS_Address =
-        payable(0xF1dE39102db79151F20cAC04D3A5DCe45a3D8Dbc);
+    address payable spending_ARB_Address = payable(0x9F1b8D30D9e86B3bF65fa9f91722B4A3E9802382);
+    address payable spending_ETH_Address = payable(0xC4e5BC86C3CAEd72dB41e62675f27b239Cb23bc6);
+    address payable spending_OPT_Address = payable(0x4AA5F077688ba0d53836A3B9E9FDC3bFB16B1362);
+    address payable spending_BAS_Address = payable(0xF1dE39102db79151F20cAC04D3A5DCe45a3D8Dbc);
 
     address weth_ARB_Address = 0x980B62Da83eFf3D4576C647993b0c1D7faf17c73;
     address weth_ETH_Address = 0xf531B8F309Be94191af87605CfBf600D71C2cFe0;
@@ -56,7 +52,8 @@ contract SetupScript is Script {
     function run() external {
         vm.startBroadcast();
         uint8 config = 3;
-        if (config == 1) { // setting up all the contracts from scratch
+        if (config == 1) {
+            // setting up all the contracts from scratch
             wstETHOracle = new WstETHOracleReceiver(
                 0x4200000000000000000000000000000000000007, // L2 messenger
                 0x0000000000000000000000000000000000000000 // l1 sender placehodler
@@ -85,10 +82,7 @@ contract SetupScript is Script {
             );
             console.log("issuer1NftContract", address(issuer1NftContract));
             issuer1NftContractAddress = address(issuer1NftContract);
-            spendingContract = new SmokeSpendingContract(
-                weth_BAS_Address,
-                owner
-            );
+            spendingContract = new SmokeSpendingContract(weth_BAS_Address, owner);
             console.log("spendingContract", address(spendingContract));
             depositContract = new SmokeDepositContract(
                 address(accountOps),
@@ -102,8 +96,8 @@ contract SetupScript is Script {
             );
             console.log("depositContract", address(depositContract));
 
-            deposit_BAS_Address= address(depositContract);
-            
+            deposit_BAS_Address = address(depositContract);
+
             issuer1NftContract.approveChain(ARBEID);
             issuer1NftContract.approveChain(ETHEID);
             issuer1NftContract.approveChain(OPTEID);
@@ -117,7 +111,8 @@ contract SetupScript is Script {
                 1e15, // autogasRefill 0.001 ETH
                 2 // gas price threshold
             );
-        } else if (config==2){ // setting deposit addresses and wiring contracts
+        } else if (config == 2) {
+            // setting deposit addresses and wiring contracts
             accountOps = OperationsContract(opsCotnractAddress);
 
             accountOps.setDepositContract(ARBEID, deposit_ARB_Address); // Adding the deposit contract on the local chain

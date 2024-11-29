@@ -2,15 +2,12 @@
 pragma solidity ^0.8.0;
 
 interface ISmokeSpendingContract {
-    function getBorrowPositionSeparate(
-        address issuerNFT,
-        uint256 nftId,
-        address wallet
-    ) external view returns (uint256, uint256, uint256);
+    function getBorrowPositionSeparate(address issuerNFT, uint256 nftId, address wallet)
+        external
+        view
+        returns (uint256, uint256, uint256);
 
-    function getIssuerAddress(
-        address issuerNFT
-    ) external view returns (address);
+    function getIssuerAddress(address issuerNFT) external view returns (address);
 
     function borrow(
         address issuerNFT,
@@ -23,9 +20,7 @@ interface ISmokeSpendingContract {
         bytes memory signature
     ) external;
 
-    function getBorrowInterestRate(
-        address issuerNFT
-    ) external view returns (uint256);
+    function getBorrowInterestRate(address issuerNFT) external view returns (uint256);
 
     function setInterestRate(address issuerNFT, uint256 newRate) external;
     function setMaxRepayGas(uint256 _newRepayGas) external;

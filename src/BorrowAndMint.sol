@@ -23,11 +23,9 @@ interface IBorrowContract {
         uint256 integrator;
     }
 
-    function borrowWithSignature(
-        BorrowParams memory params,
-        bytes memory userSignature,
-        bytes memory issuerSignature
-    ) external payable;
+    function borrowWithSignature(BorrowParams memory params, bytes memory userSignature, bytes memory issuerSignature)
+        external
+        payable;
 }
 
 interface INFTMintContract is IERC721 {
@@ -52,11 +50,14 @@ contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
 
         console2.log("asdfasdgfnasgvsdfavdf");
         uint256 initialBalance = address(this).balance;
-        
+
         borrowContract.borrowWithSignature(borrowParams, userSignature, issuerSignature);
-        
+
         uint256 borrowedAmount = address(this).balance - initialBalance;
-        require(borrowedAmount == borrowParams.amount + borrowParams.repayGas, "Borrowed amount doesn't match expected amount");
+        require(
+            borrowedAmount == borrowParams.amount + borrowParams.repayGas,
+            "Borrowed amount doesn't match expected amount"
+        );
 
         // User actions here
         INFTMintContract nftMintContract = INFTMintContract(_nftMintContract);
@@ -65,18 +66,13 @@ contract BorrowAndMintNFT is Ownable, ReentrancyGuard, IERC721Receiver {
         // User actions end here
 
         if (borrowParams.repayGas > 0) {
-            (bool success, ) = msg.sender.call{value: borrowParams.repayGas}("");
+            (bool success,) = msg.sender.call{value: borrowParams.repayGas}("");
             require(success, "Failed to send repayGas to msg.sender");
         }
     }
 
     // Implement IERC721Receiver
-    function onERC721Received(
-        address,
-        address,
-        uint256,
-        bytes memory
-    ) public virtual override returns (bytes4) {
+    function onERC721Received(address, address, uint256, bytes memory) public virtual override returns (bytes4) {
         return this.onERC721Received.selector;
     }
 

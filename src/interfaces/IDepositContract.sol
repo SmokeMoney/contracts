@@ -2,13 +2,8 @@
 pragma solidity ^0.8.0;
 
 interface IDepositContract {
-    function executeWithdrawal(
-        bytes32 user,
-        bytes32 token,
-        address issuerNFT,
-        uint256 nftId,
-        uint256 amount
-    ) external;
+    function executeWithdrawal(bytes32 user, bytes32 token, address issuerNFT, uint256 nftId, uint256 amount)
+        external;
 
     function reportPositions(
         uint256 assembleId,

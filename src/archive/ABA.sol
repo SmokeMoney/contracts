@@ -2,9 +2,9 @@
 
 pragma solidity ^0.8.22;
 
-import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
-import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {OApp, MessagingFee, Origin} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
+import {OAppOptionsType3} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title PingPong contract for demonstrating LayerZero messaging between blockchains.
@@ -12,7 +12,6 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
  * @dev This contract showcases a PingPong style call (A -> B -> A) using LayerZero's OApp Standard.
  */
 contract ABA is OApp, OAppOptionsType3 {
-    
     /// @notice Last received message data.
     string public data = "Nothing received yet";
 
@@ -20,14 +19,14 @@ contract ABA is OApp, OAppOptionsType3 {
     /// @dev These values are used in things like combineOptions() in OAppOptionsType3.
     uint16 public constant SEND = 1;
     uint16 public constant SEND_ABA = 2;
-    
+
     /// @notice Emitted when a return message is successfully sent (B -> A).
     event ReturnMessageSent(string message, uint32 dstEid);
-    
+
     /// @notice Emitted when a message is received from another chain.
     event MessageReceived(string message, uint32 senderEid, bytes32 sender);
 
-     /// @notice Emitted when a message is sent to another chain (A -> B).
+    /// @notice Emitted when a message is sent to another chain (A -> B).
     event MessageSent(string message, uint32 dstEid);
 
     /// @dev Revert with this error when an invalid message type is used.
@@ -40,7 +39,11 @@ contract ABA is OApp, OAppOptionsType3 {
      */
     constructor(address _endpoint, address _owner) OApp(_endpoint, _owner) Ownable(msg.sender) {}
 
-    function encodeMessage(string memory _message, uint16 _msgType, bytes memory _extraReturnOptions) public pure returns (bytes memory) {
+    function encodeMessage(string memory _message, uint16 _msgType, bytes memory _extraReturnOptions)
+        public
+        pure
+        returns (bytes memory)
+    {
         // Get the length of _extraReturnOptions
         uint256 extraOptionsLength = _extraReturnOptions.length;
 
@@ -71,7 +74,6 @@ contract ABA is OApp, OAppOptionsType3 {
         fee = _quote(_dstEid, payload, options, _payInLzToken);
     }
 
-
     /**
      * @notice Sends a message to a specified destination chain.
      * @param _dstEid Destination endpoint ID for the message.
@@ -89,11 +91,11 @@ contract ABA is OApp, OAppOptionsType3 {
     ) external payable {
         // Encodes the message before invoking _lzSend.
         require(bytes(_message).length <= 32, "String exceeds 32 bytes");
-        
+
         if (_msgType != SEND && _msgType != SEND_ABA) {
             revert InvalidMsgType();
         }
-        
+
         bytes memory options = combineOptions(_dstEid, _msgType, _extraSendOptions);
 
         _lzSend(
@@ -109,17 +111,21 @@ contract ABA is OApp, OAppOptionsType3 {
         emit MessageSent(_message, _dstEid);
     }
 
-    function decodeMessage(bytes calldata encodedMessage) public pure returns (string memory message, uint16 msgType, uint256 extraOptionsStart, uint256 extraOptionsLength) {
-        extraOptionsStart = 256;  // Starting offset after _message, _msgType, and extraOptionsLength
+    function decodeMessage(bytes calldata encodedMessage)
+        public
+        pure
+        returns (string memory message, uint16 msgType, uint256 extraOptionsStart, uint256 extraOptionsLength)
+    {
+        extraOptionsStart = 256; // Starting offset after _message, _msgType, and extraOptionsLength
         string memory _message;
         uint16 _msgType;
 
         // Decode the first part of the message
         (_message, _msgType, extraOptionsLength) = abi.decode(encodedMessage, (string, uint16, uint256));
-        
+
         return (_message, _msgType, extraOptionsStart, extraOptionsLength);
     }
-    
+
     /**
      * @notice Internal function to handle receiving messages from another chain.
      * @dev Decodes and processes the received message based on its type.
@@ -128,20 +134,20 @@ contract ABA is OApp, OAppOptionsType3 {
      */
     function _lzReceive(
         Origin calldata _origin,
-        bytes32 /*guid*/,
+        bytes32, /*guid*/
         bytes calldata message,
-        address,  // Executor address as specified by the OApp.
-        bytes calldata  // Any extra data or options to trigger on receipt.
+        address, // Executor address as specified by the OApp.
+        bytes calldata // Any extra data or options to trigger on receipt.
     ) internal override {
-
-        (string memory _data, uint16 _msgType, uint256 extraOptionsStart, uint256 extraOptionsLength) = decodeMessage(message);
+        (string memory _data, uint16 _msgType, uint256 extraOptionsStart, uint256 extraOptionsLength) =
+            decodeMessage(message);
         data = _data;
-        
-        if (_msgType == SEND_ABA) {
 
+        if (_msgType == SEND_ABA) {
             string memory _newMessage = "Chain B says goodbye!";
 
-            bytes memory _options = combineOptions(_origin.srcEid, SEND, message[extraOptionsStart:extraOptionsStart + extraOptionsLength]);
+            bytes memory _options =
+                combineOptions(_origin.srcEid, SEND, message[extraOptionsStart:extraOptionsStart + extraOptionsLength]);
 
             _lzSend(
                 _origin.srcEid,
@@ -152,7 +158,7 @@ contract ABA is OApp, OAppOptionsType3 {
                 MessagingFee(msg.value, 0),
                 // Refund address in case of failed send call.
                 // @dev Since the Executor makes the return call, this contract is the refund address.
-                payable(address(this)) 
+                payable(address(this))
             );
 
             emit ReturnMessageSent(_newMessage, _origin.srcEid);
@@ -161,7 +167,5 @@ contract ABA is OApp, OAppOptionsType3 {
         emit MessageReceived(data, _origin.srcEid, _origin.sender);
     }
 
-    
     receive() external payable {}
-    
 }

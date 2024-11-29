@@ -26,7 +26,7 @@ contract SetupScript is Script {
 
     address issuer1NftContractAddress = 0x85a5A8AfF78df7097907952A366C6F86F3d4Aa10;
     address opsContractAddress = 0x2Cbe484B1E2fe4ffA28Fef0cAa0C9E0D724Fe183;
-    
+
     address deposit_BAS_Address = 0x472Cf1b83213DeD59DB4Fc643532d07450d8f40B;
     address deposit_ARB_Address = 0xD5cE1f4A923B90dc9556bC17fBB65781cd71f5aE;
     address deposit_OPT_Address = 0xc6bA506F9E029104896F5B739487b67d4D19c1AD;
@@ -58,8 +58,8 @@ contract SetupScript is Script {
     constructor() {
         setupAddresses();
     }
-    function setupAddresses() internal {
 
+    function setupAddresses() internal {
         chainIds[0] = 40245; // BASE
         chainIds[1] = 40231; // ARB
         chainIds[2] = 40232; // OPT
@@ -85,11 +85,12 @@ contract SetupScript is Script {
         chainIds[109] = 30322; // MORPH
         chainIds[110] = 40340; // ODYSSEY
         chainIds[111] = 40333; // UNICHAIN
-
     }
+
     function run(uint8 config) external {
         vm.startBroadcast();
-        if (config == 1) { // setting up all the contracts from scratch
+        if (config == 1) {
+            // setting up all the contracts from scratch
             wstETHOracle = new WstETHOracleReceiver(
                 0x4200000000000000000000000000000000000007, // L2 messenger
                 0x0000000000000000000000000000000000000000 // l1 sender placehodler
@@ -118,10 +119,7 @@ contract SetupScript is Script {
             );
             console.log("issuer1NftContract", address(issuer1NftContract));
 
-            spendingContract = new SmokeSpendingContract(
-                weth_BAS_Address,
-                owner
-            );
+            spendingContract = new SmokeSpendingContract(weth_BAS_Address, owner);
             console.log("spendingContract", address(spendingContract));
 
             depositContract = new SmokeDepositContract(
@@ -144,7 +142,8 @@ contract SetupScript is Script {
                 1e15, // autogasRefill 0.001 ETH
                 2 // gas price threshold
             );
-        } else if (config==2){ // setting deposit addresses and wiring contracts
+        } else if (config == 2) {
+            // setting deposit addresses and wiring contracts
             accountOps = OperationsContract(opsContractAddress);
 
             for (uint256 i = 0; i < 12; i++) {
@@ -154,8 +153,7 @@ contract SetupScript is Script {
             for (uint256 i = 0; i < 12; i++) {
                 accountOps.setPeer(chainIds[i], addressToBytes32(deposit_ARB_Address));
             }
-        } else if (config ==3) {
-
+        } else if (config == 3) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             depositContract = SmokeDepositContract(deposit_BAS_Address);
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
@@ -169,18 +167,17 @@ contract SetupScript is Script {
 
             depositContract.addSupportedToken(weth_BAS_Address, issuer1NftContractAddress);
             depositContract.addSupportedToken(wsteth_BAS_Address, issuer1NftContractAddress);
-        }
-        else if (config ==4) { // add new chian
+        } else if (config == 4) {
+            // add new chian
             accountOps = OperationsContract(opsContractAddress);
 
             accountOps.setDepositContract(chainIds[105], deposit_BLAST_Address); // Adding the deposit contract on the local chain
             accountOps.setPeer(chainIds[105], addressToBytes32(deposit_BLAST_Address));
-        }
-        else if (config == 5){ // with issuer address
+        } else if (config == 5) {
+            // with issuer address
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
             issuer1NftContract.approveChain(chainIds[105]);
-        }
-        else if (config == 7) {
+        } else if (config == 7) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             uint256 wethBalance = IWETH2(weth_BAS_Address).balanceOf(address(spendingContract));
             spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);

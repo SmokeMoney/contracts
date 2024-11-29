@@ -2,7 +2,15 @@
 pragma solidity ^0.8.0;
 
 contract SignatureGenerator {
-    function getMessageHash(address _withdrawer, uint256 token, uint256 nftId, uint256 amount, uint256 targetChainId, uint256 timestamp, uint256 nonce) public pure returns (bytes32) {
+    function getMessageHash(
+        address _withdrawer,
+        uint256 token,
+        uint256 nftId,
+        uint256 amount,
+        uint256 targetChainId,
+        uint256 timestamp,
+        uint256 nonce
+    ) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_withdrawer, token, nftId, amount, targetChainId, timestamp, nonce));
     }
 
@@ -25,7 +33,4 @@ contract SignatureGenerator {
 
         return ecrecover(_ethSignedMessageHash, v, r, s);
     }
-
 }
-
-

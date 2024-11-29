@@ -25,7 +25,6 @@ contract WstETHOracleReceiver {
     }
 
     function setWstETHRatio(uint256 ratio) external onlyL2Messenger {
-        
         // Verify that the message came from the Ethereum sender contract
         require(L2_MESSENGER.xDomainMessageSender() == L1_SENDER, "Invalid sender");
 

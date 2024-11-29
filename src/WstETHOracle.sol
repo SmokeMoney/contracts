@@ -2,17 +2,11 @@
 pragma solidity ^0.8.20;
 
 interface ICrossDomainMessenger {
-    function sendMessage(
-        address _target,
-        bytes calldata _message,
-        uint32 _gasLimit
-    ) external;
+    function sendMessage(address _target, bytes calldata _message, uint32 _gasLimit) external;
 }
 
 interface WstETHOracleReceiver {
-    function setWstETHRatio(
-        uint256 ratio
-    ) external;
+    function setWstETHRatio(uint256 ratio) external;
 }
 
 interface WstETH {
@@ -24,11 +18,7 @@ contract WstETHOracle {
     WstETHOracleReceiver public immutable L2_RECEIVER;
     WstETH public immutable WSTETH_CONTRACT;
 
-    constructor(
-        ICrossDomainMessenger _messenger,
-        WstETHOracleReceiver _l2Receiver,
-        WstETH _wstETHContract
-    ) {
+    constructor(ICrossDomainMessenger _messenger, WstETHOracleReceiver _l2Receiver, WstETH _wstETHContract) {
         L1_MESSENGER = _messenger;
         L2_RECEIVER = _l2Receiver;
         WSTETH_CONTRACT = _wstETHContract;
@@ -37,12 +27,7 @@ contract WstETHOracle {
     function updateWstETHRatio() public {
         uint256 ratio = WSTETH_CONTRACT.stEthPerToken();
         L1_MESSENGER.sendMessage(
-            address(L2_RECEIVER),
-            abi.encodeCall(
-                WstETHOracleReceiver.setWstETHRatio,
-                (ratio)
-            ),
-            200000
+            address(L2_RECEIVER), abi.encodeCall(WstETHOracleReceiver.setWstETHRatio, (ratio)), 200000
         );
     }
 }

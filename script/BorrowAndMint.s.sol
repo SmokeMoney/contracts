@@ -16,6 +16,7 @@ contract SetupScript is Script {
     constructor() {
         setupAddresses();
     }
+
     function setupAddresses() internal {
         spendingAddresses[0] = payable(0x67077b70711026CE9d7C3f591D45924264a0c65b); // BASE
         spendingAddresses[1] = payable(0xACdB62538dB30EF5F9Cdb4F7E0640f856708449d); // ARB
@@ -48,12 +49,10 @@ contract SetupScript is Script {
             smokeNftContract = new SimpleNFT();
             console.log("Smoke NFT", address(smokeNftContract));
             console.log("BorrowAndMint", address(borrowAndM));
-        }
-        else if (config == 2){
+        } else if (config == 2) {
             smokeNftContract = SimpleNFT(0xf5C17b101ad431d2eD9443360A5f6474C5471860);
             smokeNftContract.mint{value: 2e15}();
-        }
-        else if (config == 3) {
+        } else if (config == 3) {
             borrowAndM = BorrowAndMintNFT(borrowAndMintAddress[chain]);
 
             IBorrowContract.BorrowParams memory bP = IBorrowContract.BorrowParams({
@@ -69,14 +68,13 @@ contract SetupScript is Script {
                 recipient: 0x95E1EE7D40E3A2BC275153De13ECAe75B358C4e1,
                 integrator: 0
             });
-            bytes
-                memory userSignature = hex"15f967f0c636d7bd46eb23e49f9f4c0e635feb4e11656679b75079415e3cf1d93f4b82dcc7dbe2cc0795485258f872cefe0ac0824dbea15912d2696fdd3e5bd81c";
-            bytes
-                memory issuerSignature = hex"0e4b4f74e782e48acdf2d9819a35f90018c70b100ae0885b1f29ee01bd285aca33cb090ebc07724f8ea286e38cf31d1ffd215222f96276da1c8e537ab3810b5e1b";
+            bytes memory userSignature =
+                hex"15f967f0c636d7bd46eb23e49f9f4c0e635feb4e11656679b75079415e3cf1d93f4b82dcc7dbe2cc0795485258f872cefe0ac0824dbea15912d2696fdd3e5bd81c";
+            bytes memory issuerSignature =
+                hex"0e4b4f74e782e48acdf2d9819a35f90018c70b100ae0885b1f29ee01bd285aca33cb090ebc07724f8ea286e38cf31d1ffd215222f96276da1c8e537ab3810b5e1b";
 
             borrowAndM.borrowAndMint(bP, userSignature, issuerSignature, nftAddresses[chain]);
-        }
-        else if (config == 4) {
+        } else if (config == 4) {
             smokeNftContract = SimpleNFT(nftAddresses[chain]);
             smokeNftContract.withdraw();
         }
