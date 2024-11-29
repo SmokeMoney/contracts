@@ -48,7 +48,7 @@ forge script script/BlastSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 7 --c
 
 # Setup config = 1
 forge script script/BaseSepoliaSetup.s.sol:SetupScript --sig "run(uint8)" 1 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --broadcast -vvv
-
+forge script script/BaseSetup.s.sol:SetupScript --sig "run(uint8)" 1 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --broadcast -vvv
 # Update NFT and OPS addresses on all the 5 scripts (except first one). 
 
 ## SETUP NFT ADDRESS FOR BELOW
@@ -105,6 +105,8 @@ forge script script/SetSpendingConf.s.sol:SetupScript --sig "run(uint8)" 5 --cha
 forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 0 --chain-id 84532 --rpc-url base_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
 forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 10 --chain-id 911867 --rpc-url odyssey_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
 forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 11 --chain-id 1301 --rpc-url unichain_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 11 --rpc-url unichain_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
+forge script script/SpokeChainSetup.s.sol:SetupScript --sig "run(uint8, uint8)" 1 5 --rpc-url blast_sepolia --mnemonic-paths ../../keys/sandtest --mnemonic-indexes 0 --broadcast -vvv
 
 
 # Random shit

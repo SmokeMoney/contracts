@@ -8,8 +8,16 @@ ignored_error_codes = ["unused-param"]
 
 # --snip--
 [rpc_endpoints]
-optimism = "${RPC_MAINNET}"
-mainnet = "${RPC_MAINNET}"
+
+base = "https://mainnet.base.org"
+arbitrum = "wss://arbitrum-one-rpc.publicnode.com"
+optimism = "https://mainnet.optimism.io"
+zora = "https://rpc.zora.energy"
+blast = "https://rpc.blast.io"
+scroll = "https://rpc.scroll.io"
+zksync = "https://mainnet.era.zksync.io"
+linea = "https://rpc.linea.build"
+
 optimism_sepolia = "https://optimism-sepolia.blockpi.network/v1/rpc/public"
 base_sepolia = "https://sepolia.base.org"
 mainnet_sepolia = "https://eth-sepolia.public.blastapi.io"
