@@ -17,7 +17,6 @@ contract SetupScript is Script {
     uint32 ZORAID = 40249;
     uint32 BLASTID = 40243;
 
-
     WstETHOracleReceiver wstETHOracle;
     AssemblePositionsContract assemblePositionsContract;
     OperationsContract accountOps;
@@ -33,7 +32,7 @@ contract SetupScript is Script {
     address issuer1NftContractAddressOld = 0xA500C712e7EbDd5040f1A212800f5f6fa20d05F8;
     address issuer1NftContractAddress = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
     address opsContractAddress = 0x3d4CF5232061744CA5E72eAB6624C96750D71EC2;
-    
+
     address deposit_BAS_Address = 0x344DD3EF825c54f836C312CaC66294Fd2ce9F96c;
     address deposit_ARB_Address = 0xD5cE1f4A923B90dc9556bC17fBB65781cd71f5aE;
     address deposit_OPT_Address = 0xc6bA506F9E029104896F5B739487b67d4D19c1AD;
@@ -47,7 +46,7 @@ contract SetupScript is Script {
     address payable spending_ETH_Address = payable(0x78DdB60EbD01D547164F4057C3d36948A66106b6);
     address payable spending_ZORA_Address = payable(0x73f0b82ea0C7268866Bb39E5a30f3f4E348E3FeB);
     address payable spending_BLAST_Address = payable(0x9b6f6F895a011c2C90857596A1AE2f537B097f52);
-    
+
     address weth_ARB_Address = 0x980B62Da83eFf3D4576C647993b0c1D7faf17c73;
     address weth_ETH_Address = 0xf531B8F309Be94191af87605CfBf600D71C2cFe0;
     address weth_OPT_Address = 0x74A4A85C611679B73F402B36c0F84A7D2CcdFDa3;
@@ -62,7 +61,8 @@ contract SetupScript is Script {
 
     function run(uint8 config) external {
         vm.startBroadcast();
-        if (config == 1) { // setting up all the contracts from scratch
+        if (config == 1) {
+            // setting up all the contracts from scratch
             wstETHOracle = new WstETHOracleReceiver(
                 0x4200000000000000000000000000000000000007, // L2 messenger
                 0x0000000000000000000000000000000000000000 // l1 sender placehodler
@@ -91,10 +91,7 @@ contract SetupScript is Script {
             );
             console.log("issuer1NftContract", address(issuer1NftContract));
 
-            spendingContract = new SmokeSpendingContract(
-                weth_BAS_Address,
-                owner
-            );
+            spendingContract = new SmokeSpendingContract(weth_BAS_Address, owner);
             console.log("spendingContract", address(spendingContract));
 
             depositContract = new SmokeDepositContract(
@@ -117,7 +114,8 @@ contract SetupScript is Script {
                 1e15, // autogasRefill 0.001 ETH
                 2 // gas price threshold
             );
-        } else if (config==2){ // setting deposit addresses and wiring contracts
+        } else if (config == 2) {
+            // setting deposit addresses and wiring contracts
             accountOps = OperationsContract(opsContractAddress);
 
             accountOps.setDepositContract(ARBEID, deposit_ARB_Address); // Adding the deposit contract on the local chain
@@ -130,8 +128,7 @@ contract SetupScript is Script {
             accountOps.setPeer(ARBEID, addressToBytes32(deposit_ARB_Address));
             accountOps.setPeer(OPTEID, addressToBytes32(deposit_OPT_Address));
             accountOps.setPeer(ZORAID, addressToBytes32(deposit_ZORA_Address));
-        } else if (config ==3) {
-
+        } else if (config == 3) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             depositContract = SmokeDepositContract(deposit_BAS_Address);
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
@@ -147,55 +144,46 @@ contract SetupScript is Script {
 
             depositContract.addSupportedToken(weth_BAS_Address, issuer1NftContractAddress);
             depositContract.addSupportedToken(wsteth_BAS_Address, issuer1NftContractAddress);
-        }
-        else if (config ==4) { // add new chian
+        } else if (config == 4) {
+            // add new chian
             accountOps = OperationsContract(opsContractAddress);
 
             accountOps.setDepositContract(BLASTID, deposit_BLAST_Address); // Adding the deposit contract on the local chain
             accountOps.setPeer(BLASTID, addressToBytes32(deposit_BLAST_Address));
-        }
-        else if (config == 5){ // with issuer address
+        } else if (config == 5) {
+            // with issuer address
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
             issuer1NftContract.approveChain(BLASTID);
-        }
-        else if (config == 7) {
+        } else if (config == 7) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             uint256 wethBalance = IWETH2(weth_BAS_Address).balanceOf(address(spendingContract));
             spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);
-        }
-        else if (config == 8) {
+        } else if (config == 8) {
             issuer1NftContractOld = CoreNFTContract(issuer1NftContractAddressOld);
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
             uint256[] memory chainList = issuer1NftContractOld.getChainList();
             uint256 totalSupply = issuer1NftContractOld.totalSupply();
-            for (uint256 i=10; i<totalSupply;i++){
-                uint256 nftId = i+1;
+            for (uint256 i = 10; i < totalSupply; i++) {
+                uint256 nftId = i + 1;
                 console.log(nftId, issuer1NftContractOld.ownerOf(nftId));
                 uint256 newNftId = issuer1NftContract.mint{value: 0.02 * 1e18}(0);
                 console.log(newNftId);
                 bytes32[] memory wallets = issuer1NftContractOld.getWallets(nftId);
-                for (uint256 j=0; j<wallets.length; j++){
+                for (uint256 j = 0; j < wallets.length; j++) {
                     uint256[] memory limitsConfig = issuer1NftContractOld.getLimitsConfig(nftId, wallets[j]);
                     bool[] memory autogasConfig = issuer1NftContractOld.getAutogasConfig(nftId, wallets[j]);
-                    issuer1NftContract.setHigherBulkLimits(
-                        newNftId,
-                        wallets[j],
-                        chainList,
-                        limitsConfig,
-                        autogasConfig
-                    );
+                    issuer1NftContract.setHigherBulkLimits(newNftId, wallets[j], chainList, limitsConfig, autogasConfig);
                 }
                 issuer1NftContract.safeTransferFrom(issuer1, issuer1NftContractOld.ownerOf(nftId), newNftId);
             }
-        }
-        else if (config == 9) {
+        } else if (config == 9) {
             issuer1NftContractOld = CoreNFTContract(issuer1NftContractAddressOld);
             uint256 nftId = 34;
             bytes32[] memory wallets = issuer1NftContractOld.getWallets(nftId);
-            for (uint256 j=0; j<wallets.length; j++){
+            for (uint256 j = 0; j < wallets.length; j++) {
                 uint256[] memory limitsConfig = issuer1NftContractOld.getLimitsConfig(nftId, wallets[j]);
                 bool[] memory autogasConfig = issuer1NftContractOld.getAutogasConfig(nftId, wallets[j]);
-                for (uint256 k=0;k<limitsConfig.length; k++) {
+                for (uint256 k = 0; k < limitsConfig.length; k++) {
                     console.log(limitsConfig[k]);
                     console.log(autogasConfig[k]);
                 }

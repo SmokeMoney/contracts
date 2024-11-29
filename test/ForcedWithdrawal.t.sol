@@ -14,27 +14,28 @@ import "../src/archive/weth.sol";
 import "../src/archive/siggen.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
-import { OptionsBuilder } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
-import { IOAppOptionsType3, EnforcedOptionParam } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
+import {TestHelperOz5} from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
+import {OptionsBuilder} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
+import {
+    IOAppOptionsType3,
+    EnforcedOptionParam
+} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
 
 contract DepositTest is Setup {
     using ECDSA for bytes32;
     using OptionsBuilder for bytes;
-    
+
     uint16 SEND = 1;
     uint16 SEND_ABA = 2;
-
 
     function setUp() public override {
         super.setUp();
         super.setupRateLimits();
         // (issuer1, issuer1Pk) = makeAddrAndKey("issuer");
     }
-    
-    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
+
+    bytes32 public constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     bytes32 private constant BORROW_TYPEHASH = keccak256(
         "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,address recipient)"
@@ -53,28 +54,11 @@ contract DepositTest is Setup {
         address recipient
     ) public {
         bytes memory signature = getIssuersSig(
-            lendingContract,
-            userAddress,
-            issuerNFT,
-            nftId,
-            amount,
-            timestamp,
-            signatureValidityVar,
-            nonce,
-            recipient
+            lendingContract, userAddress, issuerNFT, nftId, amount, timestamp, signatureValidityVar, nonce, recipient
         );
 
         lendingContract.borrow(
-            issuerNFT,
-            nftId,
-            amount,
-            timestamp,
-            signatureValidityVar,
-            nonce,
-            recipient,
-            wethBool,
-            signature,
-            0
+            issuerNFT, nftId, amount, timestamp, signatureValidityVar, nonce, recipient, wethBool, signature, 0
         );
     }
 
@@ -101,28 +85,17 @@ contract DepositTest is Setup {
 
         bytes32 structHash = keccak256(
             abi.encode(
-                BORROW_TYPEHASH,
-                borrower,
-                issuerNFT,
-                nftId,
-                amount,
-                timestamp,
-                signatureValidityVar,
-                nonce,
-                recipient
+                BORROW_TYPEHASH, borrower, issuerNFT, nftId, amount, timestamp, signatureValidityVar, nonce, recipient
             )
         );
 
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", domainSeparator, structHash)
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(issuer1Pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
     function testForcedWithdrawal() public {
-
         uint256 signatureValidity = 2 minutes;
 
         // console.log("Issuer NFT ADdresss", issuer1NftAddress);
@@ -130,26 +103,52 @@ contract DepositTest is Setup {
         vm.warp(1720962281);
         uint256 timestamp = vm.getBlockTimestamp();
         vm.startPrank(user2);
-        neighborhoodBorrow(lendingcontractB, user2, issuer1NftAddress, tokenId, uint256(0.5 * 10**18), timestamp, signatureValidity, uint256(0), false, user2);
+        neighborhoodBorrow(
+            lendingcontractB,
+            user2,
+            issuer1NftAddress,
+            tokenId,
+            uint256(0.5 * 10 ** 18),
+            timestamp,
+            signatureValidity,
+            uint256(0),
+            false,
+            user2
+        );
         vm.stopPrank();
 
         vm.warp(1720963281);
         timestamp = vm.getBlockTimestamp();
-        
+
         vm.startPrank(user);
-        neighborhoodBorrow(lendingcontractC, user, issuer1NftAddress, tokenId, uint256(0.1 * 10**18), timestamp, signatureValidity, uint256(0), false, user2);
+        neighborhoodBorrow(
+            lendingcontractC,
+            user,
+            issuer1NftAddress,
+            tokenId,
+            uint256(0.1 * 10 ** 18),
+            timestamp,
+            signatureValidity,
+            uint256(0),
+            false,
+            user2
+        );
         vm.stopPrank();
 
-
         vm.warp(1720963381);
-        console.log("User's borrow pos on chain 3: ", lendingcontractC.getBorrowPosition(issuer1NftAddress, tokenId, user));
-        console.log("User's borrow pos on chain 2: ", lendingcontractB.getBorrowPosition(issuer1NftAddress, tokenId, user2));
-        
+        console.log(
+            "User's borrow pos on chain 3: ", lendingcontractC.getBorrowPosition(issuer1NftAddress, tokenId, user)
+        );
+        console.log(
+            "User's borrow pos on chain 2: ", lendingcontractB.getBorrowPosition(issuer1NftAddress, tokenId, user2)
+        );
+
         vm.prank(address(l2_messenger));
-        wstETHOracle.setWstETHRatio(1.175*1e18);
+        wstETHOracle.setWstETHRatio(1.175 * 1e18);
 
         vm.startPrank(user);
-        uint256 assembleId = assemblePositionsContract.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
+        uint256 assembleId =
+            assemblePositionsContract.createAssemblePositions(issuer1NftAddress, tokenId, true, address(user));
         vm.stopPrank();
         vm.startPrank(user);
         vm.expectRevert();
@@ -157,7 +156,6 @@ contract DepositTest is Setup {
         vm.stopPrank();
 
         bytes memory extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(200000, 0); // gas settings for B -> A
-
 
         bytes32[] memory walletsReqChain = issuer1NftContract.getWalletsWithLimitChain(tokenId, bEid);
         bytes memory payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
@@ -170,7 +168,9 @@ contract DepositTest is Setup {
         // emit SmokeDepositContract.PositionsReported(assembleId, tokenId);
 
         vm.warp(1721063381);
-        depositCrossB.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
+        depositCrossB.reportPositions{value: sendFee.nativeFee}(
+            assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions
+        );
         vm.stopPrank();
         verifyPackets(aEid, addressToBytes32(address(accountOps)));
 
@@ -178,7 +178,9 @@ contract DepositTest is Setup {
         sendFee = depositCrossC.quote(aEid, SEND, payload, extraOptions, false);
 
         vm.startPrank(user);
-        depositCrossC.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
+        depositCrossC.reportPositions{value: sendFee.nativeFee}(
+            assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions
+        );
         vm.stopPrank();
         verifyPackets(aEid, addressToBytes32(address(accountOps)));
 
@@ -188,18 +190,18 @@ contract DepositTest is Setup {
         sendFee = depositCrossD.quote(aEid, SEND, payload, extraOptions, false);
 
         vm.startPrank(user);
-        depositCrossD.reportPositions{value: sendFee.nativeFee}(assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions);
+        depositCrossD.reportPositions{value: sendFee.nativeFee}(
+            assembleId, issuer1NftAddress, tokenId, walletsReqChain, extraOptions
+        );
         vm.stopPrank();
         verifyPackets(aEid, addressToBytes32(address(accountOps)));
-        
 
         // Fourth report
         walletsReqChain = issuer1NftContract.getWalletsWithLimitChain(tokenId, aEid);
         accountOps.getOnChainReport(assembleId, issuer1NftAddress, tokenId, walletsReqChain, new bytes(0));
         payload = getReportPositionsPayload(assembleId, tokenId, walletsReqChain);
-        
-        assertEq(assemblePositionsContract.getReportedAssembleChains(assembleId), 4);
 
+        assertEq(assemblePositionsContract.getReportedAssembleChains(assembleId), 4);
 
         uint256[] memory withdrawAmounts = new uint256[](2);
         uint32[] memory targetChainIds = new uint32[](2);
@@ -210,20 +212,21 @@ contract DepositTest is Setup {
 
         extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(250000, 0); // gas settings for B -> A
 
-        payload = abi.encode(
-            address(user),
-            address(weth),
-            tokenId,
-            0.9 * 10**18,
-            accountOps.withdrawalNonces(tokenId)
-        );
+        payload =
+            abi.encode(address(user), address(weth), tokenId, 0.9 * 10 ** 18, accountOps.withdrawalNonces(tokenId));
 
         sendFee = accountOps.quote(bEid, SEND, accountOps.encodeMessage(1, payload), extraOptions, false);
 
-        
         console.log(assemblePositionsContract.getAssembleBorrowPosition(assembleId, 2, addressToBytes32(user)));
         vm.startPrank(user);
-        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, addressToBytes32(address(weth)), withdrawAmounts, targetChainIds, addressToBytes32(address(user)), extraOptions);
+        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(
+            assembleId,
+            addressToBytes32(address(weth)),
+            withdrawAmounts,
+            targetChainIds,
+            addressToBytes32(address(user)),
+            extraOptions
+        );
         vm.stopPrank();
         verifyPackets(bEid, addressToBytes32(address(depositCrossB)));
 
@@ -239,18 +242,19 @@ contract DepositTest is Setup {
         vm.stopPrank();
         extraOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(90000, 0); // gas settings for B -> A
 
-        payload = abi.encode(
-            address(user),
-            address(weth),
-            tokenId,
-            1 * 10**18,
-            accountOps.withdrawalNonces(tokenId)
-        );
+        payload = abi.encode(address(user), address(weth), tokenId, 1 * 10 ** 18, accountOps.withdrawalNonces(tokenId));
 
         sendFee = accountOps.quote(dEid, SEND, payload, extraOptions, false);
         vm.startPrank(user);
         vm.expectRevert();
-        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(assembleId, addressToBytes32(address(wstETH)), withdrawAmounts, targetChainIds, addressToBytes32(address(user)), extraOptions);
+        accountOps.forcedWithdrawal{value: sendFee.nativeFee}(
+            assembleId,
+            addressToBytes32(address(wstETH)),
+            withdrawAmounts,
+            targetChainIds,
+            addressToBytes32(address(user)),
+            extraOptions
+        );
         vm.stopPrank();
         verifyPackets(dEid, addressToBytes32(address(depositCrossD)));
 
@@ -258,18 +262,22 @@ contract DepositTest is Setup {
         vm.prank(issuer1);
     }
 
-    function getReportPositionsPayload(uint256 tokenId2, uint256 assembleId, bytes32[] memory walletsReqChain) private pure  returns ( bytes memory payload ){
+    function getReportPositionsPayload(uint256 tokenId2, uint256 assembleId, bytes32[] memory walletsReqChain)
+        private
+        pure
+        returns (bytes memory payload)
+    {
         uint256 depositAmount = 0;
         uint256 wstETHDepositAmount = 0;
         uint256[] memory borrowAmounts = new uint256[](walletsReqChain.length);
         uint256[] memory interestAmounts = new uint256[](walletsReqChain.length);
 
         payload = abi.encode(
-            assembleId, 
+            assembleId,
             addressToBytes32(address(69)), // issuer nft address
-            tokenId2, 
-            depositAmount, 
-            wstETHDepositAmount, 
+            tokenId2,
+            depositAmount,
+            wstETHDepositAmount,
             addressToBytes32(address(0)), // wstETHaddress
             depositAmount, // random uint256 for testing
             depositAmount, // random uint256 for testing
@@ -278,5 +286,4 @@ contract DepositTest is Setup {
             interestAmounts
         );
     }
-
 }

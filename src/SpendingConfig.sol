@@ -23,15 +23,14 @@ contract SpendingConfig is Ownable {
         uint256 scheduleInterestRate;
         uint256 scheduleInterestRateTimestamp;
         mapping(uint256 => InterestRateChange[]) interestRateHistory;
-
         // uint256 borrowFees;
         uint256 scheduleBorrowFees;
         uint256 scheduleBorrowFeesTimestamp;
-
-        // uint256 autogasThreshold;
-        // uint256 autogasRefillAmount;
-        // uint256 gasPriceThreshold;
     }
+
+    // uint256 autogasThreshold;
+    // uint256 autogasRefillAmount;
+    // uint256 gasPriceThreshold;
 
     uint256 interestRateChangeDelay;
     uint256 maxAutogasThreshold;
@@ -41,7 +40,9 @@ contract SpendingConfig is Ownable {
     ISmokeSpendingContract spendingContract;
     mapping(address => IssuerDataConfig) public issuers; // issuer NFT Address -> issuerDataConf
 
-    event InterestRateChangeScheduled(address indexed issuerNFT, uint256 oldRate, uint256 newRate, uint256 effectiveTimestamp);
+    event InterestRateChangeScheduled(
+        address indexed issuerNFT, uint256 oldRate, uint256 newRate, uint256 effectiveTimestamp
+    );
 
     constructor(address _owner, address _spendingContract) Ownable(_owner) {
         spendingContract = ISmokeSpendingContract(_spendingContract);
@@ -67,7 +68,10 @@ contract SpendingConfig is Ownable {
     function setInterestRate(address issuerNFT) external onlyIssuer(issuerNFT) {
         IssuerDataConfig storage issuerDataConf = issuers[issuerNFT];
         require(issuerDataConf.scheduleInterestRate != 0, "No scheduled rate change");
-        require(block.timestamp > issuerDataConf.scheduleInterestRateTimestamp + interestRateChangeDelay, "Delay period not yet passed");
+        require(
+            block.timestamp > issuerDataConf.scheduleInterestRateTimestamp + interestRateChangeDelay,
+            "Delay period not yet passed"
+        );
         uint256 newRate = issuerDataConf.scheduleInterestRate;
         spendingContract.getBorrowInterestRate(issuerNFT);
         spendingContract.setInterestRate(issuerNFT, newRate);
@@ -79,5 +83,4 @@ contract SpendingConfig is Ownable {
     function setMaxRepayGas(uint256 _newRepayGas) external onlyOwner {
         spendingContract.setMaxRepayGas(_newRepayGas);
     }
-
 }

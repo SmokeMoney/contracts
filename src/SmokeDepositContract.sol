@@ -7,10 +7,10 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { OAppOptionsType3 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
-import { console2 } from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
+import {OApp, MessagingFee, Origin} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OAppOptionsType3} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OAppOptionsType3.sol";
+import {console2} from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 import "./interfaces/ISmokeSpendingContract.sol";
 
@@ -18,7 +18,7 @@ interface IWETH2 {
     function deposit() external payable;
     function withdraw(uint256 wad) external;
     function balanceOf(address a) external view returns (uint256);
-    function transfer(address dst, uint wad) external returns (bool);
+    function transfer(address dst, uint256 wad) external returns (bool);
 }
 
 contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3 {
@@ -71,20 +71,51 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
 
     event TokenAdded(address indexed token, address indexed issuerNFT);
     event TokenRemoved(address indexed token, address indexed issuerNFT);
-    event Deposited(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
-    event WithdrawalExecuted(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
-    event CrossChainWithdrawalExecuted(address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount);
-    event LiquidationLocked(address indexed token, address indexed issuerNFT, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
-    event LiquidationExecuted(address indexed token, address indexed issuerNFT, uint256 indexed nftId, uint256 amount, uint256 issuerLockAmount);
-    event LiquidationChallenged(address indexed token, address indexed issuerNFT, uint256 indexed nftId, address challenger);
+    event Deposited(
+        address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount
+    );
+    event WithdrawalExecuted(
+        address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount
+    );
+    event CrossChainWithdrawalExecuted(
+        address indexed user, address indexed issuerNFT, uint256 indexed nftId, address token, uint256 amount
+    );
+    event LiquidationLocked(
+        address indexed token,
+        address indexed issuerNFT,
+        uint256 indexed nftId,
+        uint256 amount,
+        uint256 issuerLockAmount
+    );
+    event LiquidationExecuted(
+        address indexed token,
+        address indexed issuerNFT,
+        uint256 indexed nftId,
+        uint256 amount,
+        uint256 issuerLockAmount
+    );
+    event LiquidationChallenged(
+        address indexed token, address indexed issuerNFT, uint256 indexed nftId, address challenger
+    );
     event PositionsReported(uint256 indexed assembleId, address indexed issuerNFT, uint256 indexed nftId);
-    event QuickChallengeInitiated(address indexed token, address indexed issuerNFT, uint256 indexed nftId, address challenger, uint256 lockedAmount);
+    event QuickChallengeInitiated(
+        address indexed token,
+        address indexed issuerNFT,
+        uint256 indexed nftId,
+        address challenger,
+        uint256 lockedAmount
+    );
 
-    constructor(address _accOpsContract, address _spendingContract, address _wethAddress, address _wstETHAddress, uint32 _adminChainId, uint32 _chainId, address _endpoint, address _owner) 
-        OApp(_endpoint, _owner) 
-        Ownable(_owner)
-        EIP712("SmokeDepositContract", "1")
-    {
+    constructor(
+        address _accOpsContract,
+        address _spendingContract,
+        address _wethAddress,
+        address _wstETHAddress,
+        uint32 _adminChainId,
+        uint32 _chainId,
+        address _endpoint,
+        address _owner
+    ) OApp(_endpoint, _owner) Ownable(_owner) EIP712("SmokeDepositContract", "1") {
         accOpsContractAddress = _accOpsContract;
         spendingContract = ISmokeSpendingContract(_spendingContract);
         wethAddress = _wethAddress;
@@ -140,16 +171,13 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         emit Deposited(msg.sender, issuerNFT, nftId, wethAddress, amount);
     }
 
-    function secondaryWithdraw(
-        SecondaryWithdrawParams memory params,
-        bytes memory signature
-    ) external payable {
+    function secondaryWithdraw(SecondaryWithdrawParams memory params, bytes memory signature) external payable {
         address issuerAddress = spendingContract.getIssuerAddress(params.issuerNFT);
         require(issuerAddress != address(0), "Invalid issuer");
         require(!params.primary, "Invalid withdrawal. Not a primary port");
 
         IssuerData storage issuerData = issuers[params.issuerNFT];
-        require(issuerData.secondaryWithdrawalAddress[params.nftId] == msg.sender, 'Withdrawal not authorized');
+        require(issuerData.secondaryWithdrawalAddress[params.nftId] == msg.sender, "Withdrawal not authorized");
         require(block.timestamp <= params.timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(params.nonce == issuerData.withdrawalNonces[params.nftId], "Invalid withdraw nonce");
 
@@ -164,30 +192,33 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         bytes memory signature,
         address issuerAddress
     ) internal view {
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            SECONDARY_WITHDRAW_TYPEHASH,
-            params.issuerNFT,
-            params.token,
-            params.nftId,
-            params.amount,
-            params.targetChainId,
-            params.timestamp,
-            params.nonce,
-            params.primary,
-            params.recipientAddress
-        )));
-        
-        require(
-            SignatureChecker.isValidSignatureNow(
-                issuerAddress,
-                digest,
-                signature
-            ),
-            "Invalid signature from issuer"
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    SECONDARY_WITHDRAW_TYPEHASH,
+                    params.issuerNFT,
+                    params.token,
+                    params.nftId,
+                    params.amount,
+                    params.targetChainId,
+                    params.timestamp,
+                    params.nonce,
+                    params.primary,
+                    params.recipientAddress
+                )
+            )
         );
+
+        require(SignatureChecker.isValidSignatureNow(issuerAddress, digest, signature), "Invalid signature from issuer");
     }
 
-    function executeWithdrawal(bytes32 recipientBytes32, bytes32 tokenBytes32, address issuerNFT, uint256 nftId, uint256 amount) public nonReentrant {
+    function executeWithdrawal(
+        bytes32 recipientBytes32,
+        bytes32 tokenBytes32,
+        address issuerNFT,
+        uint256 nftId,
+        uint256 amount
+    ) public nonReentrant {
         address recipientAddress = bytes32ToAddress(recipientBytes32);
         address token = bytes32ToAddress(tokenBytes32);
         IssuerData storage issuerData = issuers[issuerNFT];
@@ -198,8 +229,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         require(!issuerData.liquidationLocks[token][nftId], "Account is locked for liquidation");
         require(issuerData.deposits[token][nftId] >= amount, "Insufficient balance");
 
-        if (token == wethAddress) {            
-
+        if (token == wethAddress) {
             // Check if the contract has enough WETH balance
             require(WETH.balanceOf(address(this)) >= amount, "Insufficient WETH balance");
             WETH.transfer(recipientAddress, amount);
@@ -213,10 +243,8 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
             // } catch (bytes memory lowLevelData) {
             //     console2.log("Withdrawal failed with low-level error");
             //     console2.logBytes(lowLevelData);
-            // } Someone help please. 
-
-        }
-        else {
+            // } Someone help please.
+        } else {
             IERC20(token).safeTransfer(recipientAddress, amount);
         }
         issuerData.deposits[token][nftId] -= amount;
@@ -230,22 +258,14 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         bytes calldata payload, // encoded message payload being received
         address _executor, // the Executor address.
         bytes calldata _extraData // arbitrary data appended by the Executor
-        ) internal override 
-    {
-        
+    ) internal override {
         (uint8 msgType, bytes memory decodedPayload) = decodeMessage(payload);
-        if (msgType == 1){
-            (
-                bytes32 recipientAddress,
-                bytes32 token,
-                bytes32 issuerNFT,
-                uint256 nftId,
-                uint256 amount
-            ) = abi.decode(decodedPayload, (bytes32, bytes32, bytes32, uint256, uint256));
-    
+        if (msgType == 1) {
+            (bytes32 recipientAddress, bytes32 token, bytes32 issuerNFT, uint256 nftId, uint256 amount) =
+                abi.decode(decodedPayload, (bytes32, bytes32, bytes32, uint256, uint256));
+
             _executeCrossChainWithdrawal(recipientAddress, token, issuerNFT, nftId, amount);
-        }
-        else if (msgType == 2) {
+        } else if (msgType == 2) {
             (
                 bytes32 recipientAddress,
                 bytes32 token,
@@ -256,24 +276,25 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
             ) = abi.decode(decodedPayload, (bytes32, bytes32, bytes32, uint256, uint256, uint256));
 
             _challengeLiquidation(issuerNFT, nftId, token, timestamp, latestBorrowTimestamp, recipientAddress);
-        }
-        else {
-            (
-                bytes32 issuerNFT,
-                uint256 nftId,
-                bytes32 secondaryWithdrawalAddress
-            ) = abi.decode(decodedPayload, (bytes32, uint256, bytes32));
-            issuers[bytes32ToAddress(issuerNFT)].secondaryWithdrawalAddress[nftId] = bytes32ToAddress(secondaryWithdrawalAddress);
+        } else {
+            (bytes32 issuerNFT, uint256 nftId, bytes32 secondaryWithdrawalAddress) =
+                abi.decode(decodedPayload, (bytes32, uint256, bytes32));
+            issuers[bytes32ToAddress(issuerNFT)].secondaryWithdrawalAddress[nftId] =
+                bytes32ToAddress(secondaryWithdrawalAddress);
         }
     }
 
-    function decodeMessage(bytes calldata encodedMessage) public pure returns (uint8 msgType, bytes memory decodedPayload) {
-        // @attackvector TODO wil this always work fine? 
+    function decodeMessage(bytes calldata encodedMessage)
+        public
+        pure
+        returns (uint8 msgType, bytes memory decodedPayload)
+    {
+        // @attackvector TODO wil this always work fine?
 
         // Decode the first part of the message
         (msgType, decodedPayload) = abi.decode(encodedMessage, (uint8, bytes));
     }
-    
+
     function _executeCrossChainWithdrawal(
         bytes32 recipientBytes32,
         bytes32 tokenBytes32,
@@ -300,8 +321,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
             WETH.transfer(recipientAddress, amount);
             // console2.log("This contract: %s | IssuerNFT: %s | NFTId: %s", address(this), issuerNFT, nftId); // TODO remove after testing
             // console2.log("This contract: %s | IssuerNFT: %s | Balance: %s", address(this), issuerNFT, issuers[issuerNFT].deposits[token][nftId]); // TODO remove after testing
-        }
-        else {
+        } else {
             IERC20(token).safeTransfer(recipientAddress, amount);
         }
         issuerData.deposits[token][nftId] -= amount;
@@ -309,8 +329,14 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         emit CrossChainWithdrawalExecuted(recipientAddress, issuerNFT, nftId, token, amount);
     }
 
-    function reportPositions(uint256 assembleId, address issuerNFT, uint256 nftId, bytes32[] memory walletsBytes32, bytes calldata _extraOptions) external payable returns (bytes memory) {
-        require(nftId != 0, 'Invalid NFT Id'); // @attackVector test this by removing it. I think the attack can mark a chain's borrow positions as 0. 
+    function reportPositions(
+        uint256 assembleId,
+        address issuerNFT,
+        uint256 nftId,
+        bytes32[] memory walletsBytes32,
+        bytes calldata _extraOptions
+    ) external payable returns (bytes memory) {
+        require(nftId != 0, "Invalid NFT Id"); // @attackVector test this by removing it. I think the attack can mark a chain's borrow positions as 0.
 
         bytes memory payload = _gatherReportDataAndEncode(assembleId, issuerNFT, nftId, walletsBytes32);
 
@@ -324,9 +350,14 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         }
     }
 
-    function _gatherReportDataAndEncode(uint256 assembleId, address issuerNFT, uint256 nftId, bytes32[] memory walletsBytes32) internal view returns (bytes memory) {
+    function _gatherReportDataAndEncode(
+        uint256 assembleId,
+        address issuerNFT,
+        uint256 nftId,
+        bytes32[] memory walletsBytes32
+    ) internal view returns (bytes memory) {
         IssuerData storage issuerData = issuers[issuerNFT];
-        
+
         uint256[] memory borrowAmounts = new uint256[](walletsBytes32.length);
         uint256[] memory interestAmounts = new uint256[](walletsBytes32.length);
         uint256 latestBorrowTimestamp = 0;
@@ -334,7 +365,8 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         for (uint256 i = 0; i < walletsBytes32.length; i++) {
             address wallet = bytes32ToAddress(walletsBytes32[i]);
             uint256 borrowTimestamp;
-            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) = spendingContract.getBorrowPositionSeparate(issuerNFT, nftId, wallet);
+            (borrowAmounts[i], interestAmounts[i], borrowTimestamp) =
+                spendingContract.getBorrowPositionSeparate(issuerNFT, nftId, wallet);
             latestBorrowTimestamp = latestBorrowTimestamp > borrowTimestamp ? latestBorrowTimestamp : borrowTimestamp;
         }
 
@@ -355,13 +387,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
     }
 
     function _crossChainReport(bytes memory payload, bytes calldata _extraOptions) internal {
-        _lzSend(
-            adminChainId,
-            payload,
-            _extraOptions,
-            MessagingFee(msg.value, 0),
-            payable(msg.sender)
-        );
+        _lzSend(adminChainId, payload, _extraOptions, MessagingFee(msg.value, 0), payable(msg.sender));
     }
 
     function quote(
@@ -371,7 +397,6 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         bytes calldata _extraOptions,
         bool _payInLzToken
     ) public view returns (MessagingFee memory fee) {
-
         fee = _quote(targetChainId, _payload, _extraOptions, _payInLzToken);
     }
 
@@ -393,7 +418,10 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
     function quickChallenge(address issuerNFT, uint256 nftId, address token) external nonReentrant {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(issuerData.liquidationLocks[token][nftId], "Account not locked for liquidation");
-        require(block.timestamp < issuerData.liquidationLockTimes[token][nftId] + MIN_CHALLENGE_PERIOD, "Initial challenge period over");
+        require(
+            block.timestamp < issuerData.liquidationLockTimes[token][nftId] + MIN_CHALLENGE_PERIOD,
+            "Initial challenge period over"
+        );
         require(issuerData.challengerLocks[token][nftId] == 0, "Already challenged");
 
         uint256 challengerLockAmount = (issuerData.deposits[token][nftId] * CHALLENGER_LOCK_PERCENTAGE) / 10000;
@@ -409,10 +437,14 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
     function executeLiquidation(address issuerNFT, uint256 nftId, address token) external onlyIssuer(issuerNFT) {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(issuerData.liquidationLocks[token][nftId], "Account not locked for liquidation");
-        
-        uint256 challengePeriod = issuerData.challengerLocks[token][nftId] > 0 ? EXTENDED_CHALLENGE_PERIOD : MIN_CHALLENGE_PERIOD;
-        require(block.timestamp >= issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period not over");
-        
+
+        uint256 challengePeriod =
+            issuerData.challengerLocks[token][nftId] > 0 ? EXTENDED_CHALLENGE_PERIOD : MIN_CHALLENGE_PERIOD;
+        require(
+            block.timestamp >= issuerData.liquidationLockTimes[token][nftId] + challengePeriod,
+            "Challenge period not over"
+        );
+
         address issuer = spendingContract.getIssuerAddress(issuerNFT);
         IERC20(token).safeTransfer(issuer, issuerData.deposits[token][nftId] + issuerData.issuerLocks[token][nftId]);
 
@@ -429,16 +461,32 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         delete issuerData.challengerLocks[token][nftId];
         delete issuerData.challengers[token][nftId];
 
-        emit LiquidationExecuted(token, issuerNFT, nftId, issuerData.deposits[token][nftId], issuerData.issuerLocks[token][nftId]);
+        emit LiquidationExecuted(
+            token, issuerNFT, nftId, issuerData.deposits[token][nftId], issuerData.issuerLocks[token][nftId]
+        );
     }
 
-    function onChainLiqChallenge(bytes32 issuerNFT, uint256 nftId, bytes32 token, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipient) external nonReentrant {
+    function onChainLiqChallenge(
+        bytes32 issuerNFT,
+        uint256 nftId,
+        bytes32 token,
+        uint256 assembleTimestamp,
+        uint256 latestBorrowTimestamp,
+        bytes32 recipient
+    ) external nonReentrant {
         require(msg.sender == address(accOpsContractAddress), "Only NFT contract can execute withdrawals");
         require(address(0) != address(accOpsContractAddress), "On-chain Withdrawals are not allowed on this chain");
         _challengeLiquidation(issuerNFT, nftId, token, assembleTimestamp, latestBorrowTimestamp, recipient);
     }
-    
-    function _challengeLiquidation(bytes32 issuerNFTBytes32, uint256 nftId, bytes32 tokenBytes32, uint256 assembleTimestamp, uint256 latestBorrowTimestamp, bytes32 recipientBytes32) internal {
+
+    function _challengeLiquidation(
+        bytes32 issuerNFTBytes32,
+        uint256 nftId,
+        bytes32 tokenBytes32,
+        uint256 assembleTimestamp,
+        uint256 latestBorrowTimestamp,
+        bytes32 recipientBytes32
+    ) internal {
         address token = bytes32ToAddress(tokenBytes32);
         address recipient = bytes32ToAddress(recipientBytes32);
         address issuerNFT = bytes32ToAddress(issuerNFTBytes32);
@@ -446,23 +494,31 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         IssuerData storage issuerData = issuers[issuerNFT];
 
         require(issuerData.liquidationLocks[token][nftId], "Account not locked for liquidation");
-        
-        uint256 challengePeriod = issuerData.challengerLocks[token][nftId] > 0 ? EXTENDED_CHALLENGE_PERIOD : MIN_CHALLENGE_PERIOD;
-        require(block.timestamp < issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period over");
+
+        uint256 challengePeriod =
+            issuerData.challengerLocks[token][nftId] > 0 ? EXTENDED_CHALLENGE_PERIOD : MIN_CHALLENGE_PERIOD;
+        require(
+            block.timestamp < issuerData.liquidationLockTimes[token][nftId] + challengePeriod, "Challenge period over"
+        );
         require(issuerData.liquidationLockTimes[token][nftId] < assembleTimestamp, "Assembled before liquidation lock");
-        
+
         address issuer = spendingContract.getIssuerAddress(issuerNFT);
 
         if (issuerData.liquidationLockTimes[token][nftId] < latestBorrowTimestamp) {
             IERC20(token).safeTransfer(issuer, issuerData.issuerLocks[token][nftId]);
             if (issuerData.challengerLocks[token][nftId] > 0) {
-                IERC20(token).safeTransfer(issuerData.challengers[token][nftId], (issuerData.challengerLocks[token][nftId] * 9000) / 10000 );
+                IERC20(token).safeTransfer(
+                    issuerData.challengers[token][nftId], (issuerData.challengerLocks[token][nftId] * 9000) / 10000
+                );
                 IERC20(token).safeTransfer(issuer, (issuerData.challengerLocks[token][nftId] * 1000) / 10000);
             }
             emit LiquidationChallenged(token, issuerNFT, nftId, issuer);
         } else {
             issuerData.isIssuerAnAsshole = true;
-            IERC20(token).safeTransfer(issuerData.challengers[token][nftId], issuerData.challengerLocks[token][nftId] + (issuerData.issuerLocks[token][nftId] * 2500) / 10000 );
+            IERC20(token).safeTransfer(
+                issuerData.challengers[token][nftId],
+                issuerData.challengerLocks[token][nftId] + (issuerData.issuerLocks[token][nftId] * 2500) / 10000
+            );
             IERC20(token).safeTransfer(recipient, (issuerData.issuerLocks[token][nftId] * 7500) / 10000);
             emit LiquidationChallenged(token, issuerNFT, nftId, recipient);
         }
@@ -499,7 +555,7 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
         return issuers[issuerNFT].withdrawalNonces[nftId];
     }
 
-        /**
+    /**
      * @dev Converts bytes32 to an address.
      * @param _b The bytes32 value to convert.
      * @return The address representation of bytes32.
@@ -507,11 +563,12 @@ contract SmokeDepositContract is EIP712, ReentrancyGuard, OApp, OAppOptionsType3
     function bytes32ToAddress(bytes32 _b) internal pure returns (address) {
         return address(uint160(uint256(_b)));
     }
-        /**
+    /**
      * @dev Converts an address to bytes32.
      * @param _addr The address to convert.
      * @return The bytes32 representation of the address.
      */
+
     function addressToBytes32(address _addr) internal pure returns (bytes32) {
         return bytes32(uint256(uint160(_addr)));
     }

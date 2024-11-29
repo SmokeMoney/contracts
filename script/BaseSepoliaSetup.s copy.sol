@@ -17,7 +17,6 @@ contract SetupScript is Script {
     uint32 ZORAID = 40249;
     uint32 BLASTID = 40243;
     uint32 SCROLLID = 40170;
-    
 
     WstETHOracleReceiver wstETHOracle;
     AssemblePositionsContract assemblePositionsContract;
@@ -32,7 +31,7 @@ contract SetupScript is Script {
 
     address issuer1NftContractAddress = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
     address opsContractAddress = 0x3d4CF5232061744CA5E72eAB6624C96750D71EC2;
-    
+
     address deposit_BAS_Address = 0x344DD3EF825c54f836C312CaC66294Fd2ce9F96c;
     address deposit_ARB_Address = 0xD5cE1f4A923B90dc9556bC17fBB65781cd71f5aE;
     address deposit_OPT_Address = 0xc6bA506F9E029104896F5B739487b67d4D19c1AD;
@@ -63,7 +62,8 @@ contract SetupScript is Script {
 
     function run(uint8 config) external {
         vm.startBroadcast();
-        if (config == 1) { // setting up all the contracts from scratch
+        if (config == 1) {
+            // setting up all the contracts from scratch
             wstETHOracle = new WstETHOracleReceiver(
                 0x4200000000000000000000000000000000000007, // L2 messenger
                 0x0000000000000000000000000000000000000000 // l1 sender placehodler
@@ -92,10 +92,7 @@ contract SetupScript is Script {
             );
             console.log("issuer1NftContract", address(issuer1NftContract));
 
-            spendingContract = new SmokeSpendingContract(
-                weth_BAS_Address,
-                owner
-            );
+            spendingContract = new SmokeSpendingContract(weth_BAS_Address, owner);
             console.log("spendingContract", address(spendingContract));
 
             depositContract = new SmokeDepositContract(
@@ -118,7 +115,8 @@ contract SetupScript is Script {
                 1e15, // autogasRefill 0.001 ETH
                 2 // gas price threshold
             );
-        } else if (config==2){ // setting deposit addresses and wiring contracts
+        } else if (config == 2) {
+            // setting deposit addresses and wiring contracts
             accountOps = OperationsContract(opsContractAddress);
 
             accountOps.setDepositContract(ARBEID, deposit_ARB_Address); // Adding the deposit contract on the local chain
@@ -133,8 +131,7 @@ contract SetupScript is Script {
             accountOps.setPeer(OPTEID, addressToBytes32(deposit_OPT_Address));
             accountOps.setPeer(ZORAID, addressToBytes32(deposit_ZORA_Address));
             accountOps.setPeer(BLASTID, addressToBytes32(deposit_BLAST_Address));
-        } else if (config ==3) {
-
+        } else if (config == 3) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             depositContract = SmokeDepositContract(deposit_BAS_Address);
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
@@ -152,18 +149,17 @@ contract SetupScript is Script {
 
             depositContract.addSupportedToken(weth_BAS_Address, issuer1NftContractAddress);
             depositContract.addSupportedToken(wsteth_BAS_Address, issuer1NftContractAddress);
-        }
-        else if (config ==4) { // add new chian
+        } else if (config == 4) {
+            // add new chian
             accountOps = OperationsContract(opsContractAddress);
 
             accountOps.setDepositContract(BLASTID, deposit_BLAST_Address); // Adding the deposit contract on the local chain
             accountOps.setPeer(BLASTID, addressToBytes32(deposit_BLAST_Address));
-        }
-        else if (config == 5){ // with issuer address
+        } else if (config == 5) {
+            // with issuer address
             issuer1NftContract = CoreNFTContract(issuer1NftContractAddress);
             issuer1NftContract.approveChain(BLASTID);
-        }
-        else if (config == 7) {
+        } else if (config == 7) {
             spendingContract = SmokeSpendingContract(spending_BAS_Address);
             uint256 wethBalance = IWETH2(weth_BAS_Address).balanceOf(address(spendingContract));
             spendingContract.poolWithdraw(wethBalance, issuer1NftContractAddress);

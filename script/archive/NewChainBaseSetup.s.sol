@@ -10,7 +10,6 @@ import "../../src/CoreNFTContract.sol";
 import "../../src/WstETHOracleReceiver.sol";
 
 contract SetupScript is Script {
-
     uint32 ARBEID = 40231;
     uint32 ETHEID = 40161;
     uint32 OPTEID = 40232;
@@ -41,7 +40,7 @@ contract SetupScript is Script {
     address wsteth_ETH_Address = 0x981830D1946e6FC9D5F893327a2819Fd5E2C5819;
     address wsteth_OPT_Address = 0xeEbe5E1bD522BbD9a64f28d923c0680F89DB5c59;
     address wsteth_BAS_Address = 0x14440344256002a5afaA1403EbdAf4bf9a5499E3;
-    
+
     function run() external {
         vm.startBroadcast();
 

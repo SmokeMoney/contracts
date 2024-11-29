@@ -9,12 +9,12 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
-import { console2 } from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
+import {console2} from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 interface IWETH {
     function deposit() external payable;
     function withdraw(uint256 wad) external;
-    function transfer(address dst, uint wad) external returns (bool);
+    function transfer(address dst, uint256 wad) external returns (bool);
 }
 
 contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
@@ -41,9 +41,9 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 gasPriceThreshold;
         uint256 poolDeposited;
         mapping(uint256 => InterestRateChange[]) interestRateHistory;
-        mapping(uint256 => mapping(address => BorrowPosition)) borrowPositions; // nftId => wallet => BorrowPosition  
+        mapping(uint256 => mapping(address => BorrowPosition)) borrowPositions; // nftId => wallet => BorrowPosition
         mapping(uint256 => uint256) borrowNonces; // nftId => nonce
-        mapping(uint256 => address[]) borrowers; // nftId => array of borrower addresses 
+        mapping(uint256 => address[]) borrowers; // nftId => array of borrower addresses
     }
 
     struct BorrowParams {
@@ -59,13 +59,13 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         address recipient;
         uint256 integrator;
     }
-    
+
     bytes32 private constant BORROW_TYPEHASH = keccak256(
         "Borrow(address borrower,address issuerNFT,uint256 nftId,uint256 amount,uint256 timestamp,uint256 signatureValidity,uint256 nonce,address recipient)"
     );
 
     IWETH public immutable WETH;
-    
+
     mapping(address => IssuerData) public issuers; // issuer NFT Address -> issuerData
 
     uint256 public maxRepayGas;
@@ -77,10 +77,19 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     address public spendingConfigContract;
 
     event Borrowed(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event BorrowedAndSent(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount, address recipient, uint256 integrator);
+    event BorrowedAndSent(
+        address indexed issuerNFT,
+        uint256 indexed nftId,
+        address indexed wallet,
+        uint256 amount,
+        address recipient,
+        uint256 integrator
+    );
     event Repaid(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
     event AutogasTriggered(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
-    event AutogasSpikeTriggered(address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount);
+    event AutogasSpikeTriggered(
+        address indexed issuerNFT, uint256 indexed nftId, address indexed wallet, uint256 amount
+    );
     event PoolDeposited(address indexed issuerNFT, uint256 amount);
     event PoolWithdrawn(address indexed issuerNFT, uint256 amount);
     event BorrowFeesSet(address indexed issuerNFT, uint256 newFees);
@@ -125,7 +134,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 _gasPriceThreshold
     ) external onlyOwner {
         require(issuers[issuerNFT].issuerAddress == address(0), "Issuer already exists");
-        
+
         IssuerData storage newIssuer = issuers[issuerNFT];
         newIssuer.issuerAddress = _issuerAddress;
         newIssuer.borrowInterestRate = _borrowInterestRate;
@@ -161,24 +170,24 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         require(issuerData.issuerAddress != address(0), "Invalid issuer");
         require(issuerData.poolDeposited >= amount, "Insufficient issuer pool");
 
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            BORROW_TYPEHASH,
-            msg.sender,
-            issuerNFT,
-            nftId,
-            amount,
-            timestamp,
-            signatureValidity,
-            nonce,
-            recipient
-        )));
-        
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    BORROW_TYPEHASH,
+                    msg.sender,
+                    issuerNFT,
+                    nftId,
+                    amount,
+                    timestamp,
+                    signatureValidity,
+                    nonce,
+                    recipient
+                )
+            )
+        );
+
         require(
-            SignatureChecker.isValidSignatureNow(
-                issuerData.issuerAddress,
-                digest,
-                signature
-            ),
+            SignatureChecker.isValidSignatureNow(issuerData.issuerAddress, digest, signature),
             "Invalid signature from issuer"
         );
 
@@ -187,83 +196,95 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         issuerData.borrowNonces[nftId]++;
     }
 
-    function borrowWithSignature(
-        BorrowParams memory params,
-        bytes memory userSignature,
-        bytes memory issuerSignature
-    ) external nonReentrant {
+    function borrowWithSignature(BorrowParams memory params, bytes memory userSignature, bytes memory issuerSignature)
+        external
+        nonReentrant
+    {
         IssuerData storage issuerData = issuers[params.issuerNFT];
         require(params.amount > 0, "Borrow amount must be greater than 0");
         require(block.timestamp <= params.timestamp + params.signatureValidity, "Signature expired");
         require(params.nonce == issuerData.borrowNonces[params.nftId], "Invalid nonce");
         require(issuerData.issuerAddress != address(0), "Invalid issuer");
         require(issuerData.poolDeposited >= params.amount, "Insufficient issuer pool");
-        
-        // The borrower can be different from the signer. The signer signs with borrower's address in the signature. 
-        // The issuer verifies that the signature is from the signer himself. If not he won't approve it. 
+
+        // The borrower can be different from the signer. The signer signs with borrower's address in the signature.
+        // The issuer verifies that the signature is from the signer himself. If not he won't approve it.
         _validateSignatures(params, userSignature, issuerSignature);
 
-        _executeBorrowAndSend(params.issuerNFT, params.nftId, params.borrower, params.amount, params.recipient, params.weth, params.integrator);
-        
-        if (params.repayGas>0) {
+        _executeBorrowAndSend(
+            params.issuerNFT,
+            params.nftId,
+            params.borrower,
+            params.amount,
+            params.recipient,
+            params.weth,
+            params.integrator
+        );
+
+        if (params.repayGas > 0) {
             require(params.repayGas <= maxRepayGas, "Repay gas exceeds max repay");
-            _executeBorrowAndSend(params.issuerNFT, params.nftId, params.borrower, params.repayGas, msg.sender, params.weth, 0);
+            _executeBorrowAndSend(
+                params.issuerNFT, params.nftId, params.borrower, params.repayGas, msg.sender, params.weth, 0
+            );
         }
         issuers[params.issuerNFT].borrowNonces[params.nftId]++;
     }
 
-    function _validateSignatures(
-        BorrowParams memory params,
-        bytes memory userSignature,
-        bytes memory issuerSignature
-    ) internal view {
-
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            BORROW_TYPEHASH,
-            params.borrower,
-            params.issuerNFT,
-            params.nftId,
-            params.amount,
-            params.timestamp,
-            params.signatureValidity,
-            params.nonce,
-            params.recipient
-        )));
+    function _validateSignatures(BorrowParams memory params, bytes memory userSignature, bytes memory issuerSignature)
+        internal
+        view
+    {
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    BORROW_TYPEHASH,
+                    params.borrower,
+                    params.issuerNFT,
+                    params.nftId,
+                    params.amount,
+                    params.timestamp,
+                    params.signatureValidity,
+                    params.nonce,
+                    params.recipient
+                )
+            )
+        );
         require(
-            SignatureChecker.isValidSignatureNow(
-                params.borrower,
-                digest,
-                userSignature
-            ),
+            SignatureChecker.isValidSignatureNow(params.borrower, digest, userSignature),
             "Invalid signature from borrower"
         );
-    
+
         require(
-            SignatureChecker.isValidSignatureNow(
-                issuers[params.issuerNFT].issuerAddress,
-                digest,
-                issuerSignature
-            ),
+            SignatureChecker.isValidSignatureNow(issuers[params.issuerNFT].issuerAddress, digest, issuerSignature),
             "Invalid signature from issuer"
         );
     }
 
-    function _executeBorrowAndSend(address issuerNFT, uint256 nftId, address signer, uint256 amount, address recipient, bool weth, uint256 integrator) internal {
+    function _executeBorrowAndSend(
+        address issuerNFT,
+        uint256 nftId,
+        address signer,
+        uint256 amount,
+        address recipient,
+        bool weth,
+        uint256 integrator
+    ) internal {
         IssuerData storage issuerData = issuers[issuerNFT];
         BorrowPosition storage borrowPosition = issuerData.borrowPositions[nftId][signer];
-        
-        uint256 borrowInterest = calculateCompoundInterest(issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate);
-        
+
+        uint256 borrowInterest = calculateCompoundInterest(
+            issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate
+        );
+
         if (!isBorrower(issuerNFT, nftId, signer)) {
             issuerData.borrowers[nftId].push(signer);
         }
 
-        if(weth){
+        if (weth) {
             WETH.transfer(recipient, amount);
-        }
-        else {
+        } else {
             WETH.withdraw(amount);
-            (bool success, ) = recipient.call{value: amount}("");
+            (bool success,) = recipient.call{value: amount}("");
             require(success, "ETH transfer failed");
         }
 
@@ -274,7 +295,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
             // Adjust fees proportionally
             uint256 adjustedIssuerFees = (issuerData.borrowFees * maxAllowedFees) / totalFees;
             uint256 adjustedSmokeFees = maxAllowedFees - adjustedIssuerFees;
-            
+
             borrowPosition.amount += borrowInterest + amount + adjustedIssuerFees + adjustedSmokeFees;
             issuerData.smokeFeesCollected += adjustedSmokeFees;
         } else {
@@ -297,7 +318,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
 
     function isBorrower(address issuerNFT, uint256 nftId, address wallet) internal view returns (bool) {
         address[] storage nftBorrowers = issuers[issuerNFT].borrowers[nftId];
-        for (uint i = 0; i < nftBorrowers.length; i++) {
+        for (uint256 i = 0; i < nftBorrowers.length; i++) {
             if (nftBorrowers[i] == wallet) {
                 return true;
             }
@@ -305,7 +326,10 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         return false;
     }
 
-    function triggerAutogas(address issuerNFT, uint256 nftId, address wallet, uint256 repayGas) external onlyIssuer(issuerNFT) {
+    function triggerAutogas(address issuerNFT, uint256 nftId, address wallet, uint256 repayGas)
+        external
+        onlyIssuer(issuerNFT)
+    {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(wallet.balance < issuerData.autogasThreshold, "Balance above threshold");
 
@@ -315,11 +339,15 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         emit AutogasTriggered(issuerNFT, nftId, wallet, issuerData.autogasRefillAmount);
     }
 
-    function repay(address issuerNFT, uint256 nftId, address wallet, address refundAddress) external payable nonReentrant {
+    function repay(address issuerNFT, uint256 nftId, address wallet, address refundAddress)
+        external
+        payable
+        nonReentrant
+    {
         require(msg.value > 0, "Repay amount must be greater than 0");
-        
+
         uint256 repaidAmount = _repayInternal(issuerNFT, nftId, wallet, msg.value);
-        
+
         _handleRefund(msg.value, repaidAmount, refundAddress);
     }
 
@@ -330,29 +358,37 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256[] calldata amounts,
         address refundAddress
     ) external payable nonReentrant {
-        require(issuerNFTs.length == nftIds.length && nftIds.length == wallets.length && wallets.length == amounts.length, "Arrays length mismatch");
+        require(
+            issuerNFTs.length == nftIds.length && nftIds.length == wallets.length && wallets.length == amounts.length,
+            "Arrays length mismatch"
+        );
         require(msg.value > 0, "Repay amount must be greater than 0");
-        
+
         uint256 totalRepaid = 0;
-        
-        for (uint i = 0; i < nftIds.length; i++) {
+
+        for (uint256 i = 0; i < nftIds.length; i++) {
             totalRepaid += _repayInternal(issuerNFTs[i], nftIds[i], wallets[i], amounts[i]);
         }
-    
+
         require(totalRepaid <= msg.value, "Insufficient ETH sent");
         _handleRefund(msg.value, totalRepaid, refundAddress);
     }
 
-    function _repayInternal(address issuerNFT, uint256 nftId, address wallet, uint256 amount) internal returns (uint256) {
+    function _repayInternal(address issuerNFT, uint256 nftId, address wallet, uint256 amount)
+        internal
+        returns (uint256)
+    {
         IssuerData storage issuerData = issuers[issuerNFT];
         require(address(issuerData.issuerAddress) != address(0), "Invalid issuer");
 
         BorrowPosition storage borrowPosition = issuerData.borrowPositions[nftId][wallet];
         require(borrowPosition.amount > 0, "No borrow position for this NFT and wallet");
 
-        uint256 borrowInterest = calculateCompoundInterest(issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate);
+        uint256 borrowInterest = calculateCompoundInterest(
+            issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate
+        );
         uint256 totalOwed = borrowPosition.amount + borrowInterest;
-        
+
         uint256 repayAmount = amount > totalOwed ? totalOwed : amount;
         borrowPosition.amount = totalOwed > repayAmount ? totalOwed - repayAmount : 0;
         borrowPosition.timestamp = block.timestamp;
@@ -365,38 +401,49 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
 
     function _handleRefund(uint256 totalSent, uint256 totalRepaid, address refundAddress) internal {
         WETH.deposit{value: totalRepaid}();
-        
+
         if (totalRepaid < totalSent) {
             uint256 refundAmount = totalSent - totalRepaid;
-            (bool success, ) = refundAddress.call{value: refundAmount}("");
+            (bool success,) = refundAddress.call{value: refundAmount}("");
             require(success, "ETH refund failed");
         }
     }
 
-    function calculateCompoundInterest(address issuerNFT, uint256 principal, uint256 lastUpdateTime, uint256 currentInterestRate) internal view returns (uint256) {
+    function calculateCompoundInterest(
+        address issuerNFT,
+        uint256 principal,
+        uint256 lastUpdateTime,
+        uint256 currentInterestRate
+    ) internal view returns (uint256) {
         if (principal == 0) return 0;
-    
+
         uint256 totalInterest = 0;
         uint256 currentPrincipal = principal;
         uint256 currentTime = lastUpdateTime;
         InterestRateChange[] storage rateHistory = issuers[issuerNFT].interestRateHistory[currentInterestRate];
-    
-        for (uint i = 0; i < rateHistory.length && rateHistory[i].timestamp <= block.timestamp; i++) {
+
+        for (uint256 i = 0; i < rateHistory.length && rateHistory[i].timestamp <= block.timestamp; i++) {
             if (rateHistory[i].timestamp > lastUpdateTime) {
-                uint256 periodInterest = calculatePeriodInterest(currentPrincipal, currentTime, rateHistory[i].timestamp, currentInterestRate);
+                uint256 periodInterest = calculatePeriodInterest(
+                    currentPrincipal, currentTime, rateHistory[i].timestamp, currentInterestRate
+                );
                 totalInterest += periodInterest;
                 currentPrincipal += periodInterest;
                 currentTime = rateHistory[i].timestamp;
                 currentInterestRate = rateHistory[i].rate;
             }
         }
-    
+
         totalInterest += calculatePeriodInterest(currentPrincipal, currentTime, block.timestamp, currentInterestRate);
-    
+
         return totalInterest;
     }
-    
-    function calculatePeriodInterest(uint256 principal, uint256 startTime, uint256 endTime, uint256 interestRate) internal pure returns (uint256) {
+
+    function calculatePeriodInterest(uint256 principal, uint256 startTime, uint256 endTime, uint256 interestRate)
+        internal
+        pure
+        returns (uint256)
+    {
         uint256 timeElapsed = endTime - startTime;
         uint256 ratePerSecond = interestRate * 1e18 / (SECONDS_PER_YEAR * 10000); // Convert basis points to per-second rate
         uint256 compoundFactor = compoundExponent(ratePerSecond, timeElapsed);
@@ -408,7 +455,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         uint256 result = 1e18;
         uint256 base = 1e18 + rate;
         while (time > 0) {
-            if (time % 2 == 1) {    
+            if (time % 2 == 1) {
                 result = (result * base) / 1e18;
             }
             base = (base * base) / 1e18;
@@ -428,7 +475,7 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
 
         require(issuerData.poolDeposited - issuerData.smokeFeesCollected >= amount, "Insufficient pool balance");
         WETH.withdraw(amount);
-        (bool success, ) = msg.sender.call{value: amount}("");
+        (bool success,) = msg.sender.call{value: amount}("");
         require(success, "ETH transfer failed");
         issuers[issuerNFT].poolDeposited -= amount;
         emit PoolWithdrawn(issuerNFT, amount);
@@ -437,7 +484,9 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
     function setInterestRate(address issuerNFT, uint256 newRate) external onlySpendingConfig {
         IssuerData storage issuerData = issuers[issuerNFT];
         issuerData.borrowInterestRate = newRate;
-        issuerData.interestRateHistory[issuerData.borrowInterestRate].push(InterestRateChange(block.timestamp, issuerData.borrowInterestRate));
+        issuerData.interestRateHistory[issuerData.borrowInterestRate].push(
+            InterestRateChange(block.timestamp, issuerData.borrowInterestRate)
+        );
         emit InterestRateChanged(issuerNFT, newRate);
     }
 
@@ -472,21 +521,34 @@ contract SmokeSpendingContract is EIP712, ReentrancyGuard, Ownable {
         issuers[issuerNFT].borrowFees = newFees;
     }
 
-    function getBorrowPosition(address issuerNFT, uint256 nftId, address wallet) external view returns (uint256 borrowAmount) {
+    function getBorrowPosition(address issuerNFT, uint256 nftId, address wallet)
+        external
+        view
+        returns (uint256 borrowAmount)
+    {
         IssuerData storage issuerData = issuers[issuerNFT];
         BorrowPosition memory borrowPosition = issuerData.borrowPositions[nftId][wallet];
-        borrowAmount = borrowPosition.amount + calculateCompoundInterest(issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate);
+        borrowAmount = borrowPosition.amount
+            + calculateCompoundInterest(
+                issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate
+            );
     }
 
-    function getBorrowPositionSeparate(address issuerNFT, uint256 nftId, address wallet) external view returns (uint256 borrowAmount, uint256 interestAmount, uint256 borrowTimestamp) {
+    function getBorrowPositionSeparate(address issuerNFT, uint256 nftId, address wallet)
+        external
+        view
+        returns (uint256 borrowAmount, uint256 interestAmount, uint256 borrowTimestamp)
+    {
         IssuerData storage issuerData = issuers[issuerNFT];
         BorrowPosition memory borrowPosition = issuerData.borrowPositions[nftId][wallet];
         borrowAmount = borrowPosition.amount;
         borrowTimestamp = borrowPosition.timestamp;
-        interestAmount = calculateCompoundInterest(issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate);
+        interestAmount = calculateCompoundInterest(
+            issuerNFT, borrowPosition.amount, borrowPosition.timestamp, issuerData.borrowInterestRate
+        );
     }
 
-    function getBorrowFees(address issuerNFT) external view returns(uint256) {
+    function getBorrowFees(address issuerNFT) external view returns (uint256) {
         return issuers[issuerNFT].borrowFees;
     }
 

@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
-import { console2 } from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
+import {console2} from "forge-std/src/Test.sol"; // TODO REMOVE AFDTRER TEST
 
 contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     using ECDSA for bytes32;
@@ -32,7 +32,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         bytes32[] pWalletList;
         GNFTWallet[] gNFTList;
     }
-    
+
     bytes32 private constant SET_LOWER_LIMIT_TYPEHASH = keccak256(
         "SetLowerLimit(uint256 nftId,bytes32 wallet,uint256 chainId,uint256 newLimit,uint256 timestamp,uint256 nonce)"
     );
@@ -41,17 +41,14 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         "SetLowerBulkLimits(uint256 nftId,bytes32 wallet,uint256[] chainIds,uint256[] newLimits,uint256 timestamp,uint256 nonce)"
     );
 
-    bytes32 private constant RESET_WALLET_CHAIN_LIMITS_TYPEHASH = keccak256(
-        "ResetWalletChainLimits(uint256 nftId,bytes32 wallet,uint256 timestamp,uint256 nonce)"
-    );
+    bytes32 private constant RESET_WALLET_CHAIN_LIMITS_TYPEHASH =
+        keccak256("ResetWalletChainLimits(uint256 nftId,bytes32 wallet,uint256 timestamp,uint256 nonce)");
 
-    bytes32 private constant ADD_G_WALLET_TYPEHASH = keccak256(
-        "AddGWallet(uint256 nftId,bytes32 wallet,uint256 timestamp,uint256 gNFTCount)"
-    );
+    bytes32 private constant ADD_G_WALLET_TYPEHASH =
+        keccak256("AddGWallet(uint256 nftId,bytes32 wallet,uint256 timestamp,uint256 gNFTCount)");
 
-    bytes32 private constant CONNECT_G_WALLET_TYPEHASH = keccak256(
-        "ConnectGWallet(uint256 nftId,uint256 gNFTId,bytes32 wallet,bytes32 gWallet)"
-    );
+    bytes32 private constant CONNECT_G_WALLET_TYPEHASH =
+        keccak256("ConnectGWallet(uint256 nftId,uint256 gNFTId,bytes32 wallet,bytes32 gWallet)");
 
     address[] private _ownershipHistory;
     mapping(uint256 => uint256) private _referrers;
@@ -82,10 +79,10 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     event ChainDisapproved(uint256 chainId);
     event WalletConnected(uint256 nftId, uint256 gNFTId, bytes32 wallet, bytes32 gWallet);
 
-    constructor(string memory name, string memory symbol, address _owner, uint256 _mintPrice, uint256 _maxNFTs) 
-        ERC721(name, symbol) 
+    constructor(string memory name, string memory symbol, address _owner, uint256 _mintPrice, uint256 _maxNFTs)
+        ERC721(name, symbol)
         Ownable(_owner)
-        EIP712("CoreNFTContract", "1") // @attackVector I don't have salt for my 712 implementation, is this a concern? 
+        EIP712("CoreNFTContract", "1") // @attackVector I don't have salt for my 712 implementation, is this a concern?
     {
         mintPrice = _mintPrice;
         maxNFTs = _maxNFTs;
@@ -138,7 +135,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     }
 
     function isChainInList(uint256 chainId) public view returns (bool) {
-        for (uint i = 0; i < chainList.length; i++) {
+        for (uint256 i = 0; i < chainList.length; i++) {
             if (chainList[i] == chainId) {
                 return true;
             }
@@ -146,7 +143,10 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         return false;
     }
 
-    function setHigherLimit(uint256 nftId, bytes32 wallet, uint256 chainId, uint256 newLimit) external onlyNFTOwner(nftId) {
+    function setHigherLimit(uint256 nftId, bytes32 wallet, uint256 chainId, uint256 newLimit)
+        external
+        onlyNFTOwner(nftId)
+    {
         if (!isWalletAdded(nftId, wallet)) {
             _accounts[nftId].walletList.push(wallet);
         }
@@ -163,7 +163,9 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         if (!isWalletAdded(nftId, wallet)) {
             _accounts[nftId].walletList.push(wallet);
         }
-        require(chainIds.length == newLimits.length && newLimits.length == autogas.length, "Lengths of lists should match");
+        require(
+            chainIds.length == newLimits.length && newLimits.length == autogas.length, "Lengths of lists should match"
+        );
         for (uint256 i = 0; i < chainIds.length; i++) {
             _setHigherLimit(nftId, wallet, chainIds[i], newLimits[i]);
             _accounts[nftId].autogas[wallet][chainIds[i]] = autogas[i];
@@ -190,15 +192,9 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(nonce == lowerLimitNonces[nftId], "Invalid limit change nonce");
 
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            SET_LOWER_LIMIT_TYPEHASH,
-            nftId,
-            wallet,
-            chainId,
-            newLimit,
-            timestamp,
-            nonce
-        )));
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(SET_LOWER_LIMIT_TYPEHASH, nftId, wallet, chainId, newLimit, timestamp, nonce))
+        );
 
         _verifySignature(digest, signature);
 
@@ -220,15 +216,19 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         require(chainIds.length == newLimits.length, "Limits length should match the chain List length");
         require(nonce == lowerLimitNonces[nftId], "Invalid limit change nonce");
 
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            SET_LOWER_BULK_LIMITS_TYPEHASH,
-            nftId,
-            wallet,
-            keccak256(abi.encodePacked(chainIds)),
-            keccak256(abi.encodePacked(newLimits)),
-            timestamp,
-            nonce
-        )));
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    SET_LOWER_BULK_LIMITS_TYPEHASH,
+                    nftId,
+                    wallet,
+                    keccak256(abi.encodePacked(chainIds)),
+                    keccak256(abi.encodePacked(newLimits)),
+                    timestamp,
+                    nonce
+                )
+            )
+        );
 
         _verifySignature(digest, signature);
 
@@ -248,39 +248,26 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(nonce == lowerLimitNonces[nftId], "Invalid limit change nonce");
 
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            RESET_WALLET_CHAIN_LIMITS_TYPEHASH,
-            nftId,
-            wallet,
-            timestamp,
-            nonce
-        )));
+        bytes32 digest =
+            _hashTypedDataV4(keccak256(abi.encode(RESET_WALLET_CHAIN_LIMITS_TYPEHASH, nftId, wallet, timestamp, nonce)));
 
         _verifySignature(digest, signature);
 
-        for (uint i = 0; i < chainList.length; i++) {
+        for (uint256 i = 0; i < chainList.length; i++) {
             delete _accounts[nftId].walletChainLimits[wallet][chainList[i]];
         }
         lowerLimitNonces[nftId]++;
     }
 
-    function addGWallet(
-        uint256 nftId,
-        bytes32 wallet,
-        uint256 timestamp,
-        uint256 gNFTCount,
-        bytes memory signature
-    ) external onlyNFTOwner(nftId) {
+    function addGWallet(uint256 nftId, bytes32 wallet, uint256 timestamp, uint256 gNFTCount, bytes memory signature)
+        external
+        onlyNFTOwner(nftId)
+    {
         require(block.timestamp <= timestamp + SIGNATURE_VALIDITY, "Signature expired");
         require(!isWalletAdded(nftId, wallet), "Wallet already added");
 
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            ADD_G_WALLET_TYPEHASH,
-            nftId,
-            wallet,
-            timestamp,
-            gNFTCount
-        )));
+        bytes32 digest =
+            _hashTypedDataV4(keccak256(abi.encode(ADD_G_WALLET_TYPEHASH, nftId, wallet, timestamp, gNFTCount)));
 
         _verifySignature(digest, signature);
 
@@ -289,24 +276,15 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
         _accounts[nftId].gNFTCount++;
     }
 
-    function connectGWallet(
-        uint256 nftId,
-        uint256 gNFTId,
-        bytes32 wallet,
-        bytes32 gWallet,
-        bytes memory signature
-    ) external onlyNFTOwner(nftId) {
-        
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            CONNECT_G_WALLET_TYPEHASH,
-            nftId,
-            gNFTId,
-            wallet,
-            gWallet
-        )));
+    function connectGWallet(uint256 nftId, uint256 gNFTId, bytes32 wallet, bytes32 gWallet, bytes memory signature)
+        external
+        onlyNFTOwner(nftId)
+    {
+        bytes32 digest =
+            _hashTypedDataV4(keccak256(abi.encode(CONNECT_G_WALLET_TYPEHASH, nftId, gNFTId, wallet, gWallet)));
 
         require(_verifyHistIssuerSignature(digest, signature), "Invalid issuer signature");
-        
+
         // Remove the specific wallet from the list
         bool found = false;
         uint256 walletIndex;
@@ -318,33 +296,31 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
             }
         }
         require(found, "Wallet not found in the list");
-        
+
         // Move the last element to the position of the wallet to be removed
-        _accounts[nftId].pWalletList[walletIndex] = _accounts[nftId].pWalletList[_accounts[nftId].pWalletList.length - 1];
+        _accounts[nftId].pWalletList[walletIndex] =
+            _accounts[nftId].pWalletList[_accounts[nftId].pWalletList.length - 1];
         // Remove the last element
         _accounts[nftId].pWalletList.pop();
-        
+
         // Add the new gWallet
         _accounts[nftId].walletList.push(gWallet);
         _accounts[nftId].gNFTList.push(GNFTWallet({gNFT: gNFTId, gWallet: gWallet}));
-        require(_gNFTMapping[gNFTId]==0, 'gNFT already used');
+        require(_gNFTMapping[gNFTId] == 0, "gNFT already used");
         _gNFTMapping[gNFTId] = nftId;
 
-        for (uint i = 0; i < chainList.length; i++) {
-            _accounts[nftId].walletChainLimits[gWallet][chainList[i]] = _accounts[nftId].walletChainLimits[wallet][chainList[i]];
+        for (uint256 i = 0; i < chainList.length; i++) {
+            _accounts[nftId].walletChainLimits[gWallet][chainList[i]] =
+                _accounts[nftId].walletChainLimits[wallet][chainList[i]];
             delete _accounts[nftId].walletChainLimits[wallet][chainList[i]];
         }
-        
+
         emit WalletConnected(nftId, gNFTId, wallet, gWallet);
     }
 
     function _verifyHistIssuerSignature(bytes32 digest, bytes memory signature) internal view returns (bool) {
-        for (uint i = 0; i < _ownershipHistory.length; i++) {
-            if (SignatureChecker.isValidSignatureNow(
-                _ownershipHistory[i],
-                digest,
-                signature
-            )) {
+        for (uint256 i = 0; i < _ownershipHistory.length; i++) {
+            if (SignatureChecker.isValidSignatureNow(_ownershipHistory[i], digest, signature)) {
                 return true;
             }
         }
@@ -352,14 +328,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     }
 
     function _verifySignature(bytes32 digest, bytes memory signature) internal view {
-        require(
-            SignatureChecker.isValidSignatureNow(
-                owner(),
-                digest,
-                signature
-            ),
-            "Invalid signature from issuer"
-        );
+        require(SignatureChecker.isValidSignatureNow(owner(), digest, signature), "Invalid signature from issuer");
     }
 
     function setMintPrice(uint256 _mintPrice) external onlyOwner {
@@ -395,11 +364,11 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     function getAutogasConfig(uint256 nftId, bytes32 wallet) external view returns (bool[] memory) {
         uint256 chainCount = chainList.length;
         bool[] memory autogasList = new bool[](chainCount);
-        
-        for (uint i = 0; i < chainCount; i++) {
+
+        for (uint256 i = 0; i < chainCount; i++) {
             autogasList[i] = _accounts[nftId].autogas[wallet][chainList[i]];
         }
-        
+
         return autogasList;
     }
 
@@ -410,7 +379,7 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     function getReferrer(uint256 nftId) external view returns (uint256) {
         return _referrers[nftId];
     }
-    
+
     function getWallets(uint256 nftId) external view returns (bytes32[] memory) {
         return _accounts[nftId].walletList;
     }
@@ -427,21 +396,21 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     function getGWallet(uint256 gNFT) external view returns (bytes32) {
         uint256 nftId = _gNFTMapping[gNFT];
         for (uint256 i = 0; i < _accounts[nftId].gNFTCount; i++) {
-            if (_accounts[nftId].gNFTList[i].gNFT == gNFT){
+            if (_accounts[nftId].gNFTList[i].gNFT == gNFT) {
                 return _accounts[nftId].gNFTList[i].gWallet;
             }
         }
         return bytes32(0);
     }
-    
+
     function getTotalSupply() external pure returns (uint256) {
         return TOTAL_SUPPLY;
     }
-    
+
     function getLiquidationThreshold() external pure returns (uint256) {
         return LIQ_THRESHOLD;
     }
-    
+
     function getLTV() external pure returns (uint256) {
         return LTV_RATIO;
     }
@@ -449,23 +418,23 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
     function getLimitsConfig(uint256 nftId, bytes32 wallet) external view returns (uint256[] memory) {
         uint256 chainCount = chainList.length;
         uint256[] memory limitsList = new uint256[](chainCount);
-        
-        for (uint i = 0; i < chainCount; i++) {
+
+        for (uint256 i = 0; i < chainCount; i++) {
             limitsList[i] = _accounts[nftId].walletChainLimits[wallet][chainList[i]];
         }
-        
+
         return limitsList;
     }
 
     function isWalletAdded(uint256 nftId, bytes32 wallet) public view returns (bool) {
         bytes32[] memory wallets = _accounts[nftId].walletList;
-        for (uint i = 0; i < wallets.length; i++) {
+        for (uint256 i = 0; i < wallets.length; i++) {
             if (wallets[i] == wallet) {
                 return true;
             }
         }
         wallets = _accounts[nftId].pWalletList;
-        for (uint i = 0; i < wallets.length; i++) {
+        for (uint256 i = 0; i < wallets.length; i++) {
             if (wallets[i] == wallet) {
                 return true;
             }
@@ -497,10 +466,10 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
                 count++;
             }
         }
-    
+
         // Create a fixed-size array with the correct length
         bytes32[] memory walletsWithLimits = new bytes32[](count);
-    
+
         // Fill the array
         uint256 index = 0;
         for (uint256 i = 0; i < _accounts[nftId].walletList.length; i++) {
@@ -509,14 +478,14 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
                 index++;
             }
         }
-    
+
         return walletsWithLimits;
     }
 
     function getPWalletsTotalLimit(uint256 nftId) external view returns (uint256) {
         uint256 totalPWalletLimit; // placeholder wallets limits
         for (uint256 i = 0; i < _accounts[nftId].pWalletList.length; i++) {
-            for (uint256 j = 0; j< chainList.length; j++ ){
+            for (uint256 j = 0; j < chainList.length; j++) {
                 totalPWalletLimit += _getWalletChainLimit(nftId, _accounts[nftId].pWalletList[i], chainList[j]);
             }
         }
@@ -525,13 +494,17 @@ contract CoreNFTContract is EIP712, ERC721, ERC721Enumerable, Ownable {
 
     function transferOwnership(address newOwner) public virtual override onlyOwner {
         address oldOwner = owner();
-        require(_ownershipHistory.length<100, "max limit reached"); // else the owner can grieve the gNFT holders by making it really expensive to connect
+        require(_ownershipHistory.length < 100, "max limit reached"); // else the owner can grieve the gNFT holders by making it really expensive to connect
         super.transferOwnership(newOwner);
         _ownershipHistory.push(newOwner);
         emit OwnershipTransferred(oldOwner, newOwner);
     }
 
-    function _update(address to, uint256 nftId, address auth) internal override(ERC721, ERC721Enumerable) returns (address) {
+    function _update(address to, uint256 nftId, address auth)
+        internal
+        override(ERC721, ERC721Enumerable)
+        returns (address)
+    {
         return super._update(to, nftId, auth);
     }
 

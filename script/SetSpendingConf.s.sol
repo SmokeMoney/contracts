@@ -28,7 +28,7 @@ contract SetupScript is Script {
 
     address issuer1NftContractAddress = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
     address opsContractAddress = 0x3d4CF5232061744CA5E72eAB6624C96750D71EC2;
-    
+
     address deposit_BAS_Address = 0x344DD3EF825c54f836C312CaC66294Fd2ce9F96c;
     address deposit_ARB_Address = 0xD5cE1f4A923B90dc9556bC17fBB65781cd71f5aE;
     address deposit_OPT_Address = 0xc6bA506F9E029104896F5B739487b67d4D19c1AD;
@@ -74,8 +74,7 @@ contract SetupScript is Script {
 
         if (chain == 3) {
             spendingConfContract.setMaxRepayGas(5e15);
-        }
-        else {
+        } else {
             spendingConfContract.setMaxRepayGas(2e14);
         }
         vm.stopBroadcast();
