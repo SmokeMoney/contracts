@@ -27,16 +27,18 @@ interface IBorrowContract {
 
 contract BorrowAndSwapERC20 is Ownable, ReentrancyGuard {
     IBorrowContract public borrowContract;
+    address public lifiDiamond;
 
-    constructor(address _borrowContract) Ownable(msg.sender) {
+    constructor(address _borrowContract, address _lifiDiamond) Ownable(msg.sender) {
         borrowContract = IBorrowContract(_borrowContract);
+        lifiDiamond = _lifiDiamond;
     }
 
     function borrowAndSwap(
         IBorrowContract.BorrowParams memory borrowParams,
         bytes memory userSignature,
         bytes memory issuerSignature,
-        address erc20Contract
+        bytes calldata lifiData
     ) external nonReentrant {
         require(!borrowParams.weth, "Must borrow ETH for swapping");
         require(borrowParams.recipient == address(this), "Recipient must be this contract");
@@ -51,14 +53,12 @@ contract BorrowAndSwapERC20 is Ownable, ReentrancyGuard {
             "Borrowed amount doesn't match expected amount"
         );
 
-        // User actions here
-        // INFTMintContract nftMintContract = INFTMintContract(_nftMintContract);
-        // uint256 newTokenId = nftMintContract.mint{value: borrowParams.amount}();
-        // nftMintContract.safeTransferFrom(address(this), borrowParams.borrower, newTokenId);
-        // User actions end here
+        require(lifiData.length > 0, "Lifi data is required");
+        (bool success,) = lifiDiamond.call{value: borrowedAmount}(lifiData);
+        require(success, "Lifi call failed");
 
         if (borrowParams.repayGas > 0) {
-            (bool success,) = msg.sender.call{value: borrowParams.repayGas}("");
+            (success,) = msg.sender.call{value: borrowParams.repayGas}("");
             require(success, "Failed to send repayGas to msg.sender");
         }
     }
