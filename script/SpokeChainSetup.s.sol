@@ -41,7 +41,7 @@ contract SetupScript is Script {
 
     function setupAddresses() internal {
         spendingAddresses[0] = payable(0x67077b70711026CE9d7C3f591D45924264a0c65b); // BASE
-        spendingAddresses[1] = payable(0xACdB62538dB30EF5F9Cdb4F7E0640f856708449d); // ARB
+        spendingAddresses[1] = payable(0x84388f2C40eb0b6E57910757a6a4BAB4eE12b2e0); // ARB
         spendingAddresses[2] = payable(0xa1971bF0cEa6A6Fe47447914b0AB20118CF7B845); // OPT
         spendingAddresses[3] = payable(0x78DdB60EbD01D547164F4057C3d36948A66106b6); // ETH
         spendingAddresses[4] = payable(0x73f0b82ea0C7268866Bb39E5a30f3f4E348E3FeB); // ZORA
@@ -53,21 +53,8 @@ contract SetupScript is Script {
         spendingAddresses[10] = payable(0x0000000000000000000000000000000000000000); // ODYSSEY
         spendingAddresses[11] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // UNICHAIN
 
-        spendingAddresses[100] = payable(0xf430ac9B73c5fb875d8350A300E95049a19CAbb1); // BASE
-        spendingAddresses[101] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ARB
-        spendingAddresses[102] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // OPT
-        spendingAddresses[103] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ETH
-        spendingAddresses[104] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZORA
-        spendingAddresses[105] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // BLAST
-        spendingAddresses[106] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // SCROLL
-        spendingAddresses[107] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // LINEA
-        spendingAddresses[108] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZKSYNC
-        spendingAddresses[109] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // MORPH
-        spendingAddresses[110] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ODYSSEY
-        spendingAddresses[111] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // UNICHAIN
-
         depositAddresses[0] = payable(0x344DD3EF825c54f836C312CaC66294Fd2ce9F96c); // BASE
-        depositAddresses[1] = payable(0xD5cE1f4A923B90dc9556bC17fBB65781cd71f5aE); // ARB
+        depositAddresses[1] = payable(0x9840c9485E96Caca6401395E148063Bb738fd3b0); // ARB
         depositAddresses[2] = payable(0xc6bA506F9E029104896F5B739487b67d4D19c1AD); // OPT
         depositAddresses[3] = payable(0x88d9872bB7eBA71254faE14E456C095DC1c5C1fA); // ETH
         depositAddresses[4] = payable(0x74f96Ed7d11e9028352F44345F4A1D35bDF7d0E4); // ZORA
@@ -79,13 +66,26 @@ contract SetupScript is Script {
         depositAddresses[10] = payable(0x0000000000000000000000000000000000000000); // FAKE ODYSSEY ID
         depositAddresses[11] = payable(0xDF52714C191e8C4EC26cCD5B1578a904724e93b6); // UNICHAIN
 
+        spendingAddresses[100] = payable(0xf430ac9B73c5fb875d8350A300E95049a19CAbb1); // BASE
+        spendingAddresses[101] = payable(0x9cA9D67f613c50741E30e5Ef88418891e254604d); // ARB
+        spendingAddresses[102] = payable(0xf430ac9B73c5fb875d8350A300E95049a19CAbb1); // OPT
+        spendingAddresses[103] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ETH
+        spendingAddresses[104] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZORA
+        spendingAddresses[105] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // BLAST
+        spendingAddresses[106] = payable(0x9cA9D67f613c50741E30e5Ef88418891e254604d); // SCROLL
+        spendingAddresses[107] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // LINEA
+        spendingAddresses[108] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZKSYNC
+        spendingAddresses[109] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // MORPH
+        spendingAddresses[110] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ODYSSEY
+        spendingAddresses[111] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // UNICHAIN
+
         depositAddresses[100] = payable(0x472Cf1b83213DeD59DB4Fc643532d07450d8f40B); // BASE
-        depositAddresses[101] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ARB
-        depositAddresses[102] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // OPT
+        depositAddresses[101] = payable(0xeEbe5E1bD522BbD9a64f28d923c0680F89DB5c59); // ARB
+        depositAddresses[102] = payable(0x472Cf1b83213DeD59DB4Fc643532d07450d8f40B); // OPT
         depositAddresses[103] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ETH
         depositAddresses[104] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZORA
         depositAddresses[105] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // BLAST
-        depositAddresses[106] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // SCROLL
+        depositAddresses[106] = payable(0xeEbe5E1bD522BbD9a64f28d923c0680F89DB5c59); // SCROLL
         depositAddresses[107] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // LINEA
         depositAddresses[108] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // ZKSYNC
         depositAddresses[109] = payable(0x14440344256002a5afaA1403EbdAf4bf9a5499E3); // MORPH
@@ -207,10 +207,10 @@ contract SetupScript is Script {
     }
 
     address owner = 0x03773f85756acaC65A869e89E3B7b2fcDA6Be140;
-    address issuer1 = 0xE0D6f93151091f24EA09474e9271BD60F2624d99;
+    address issuer1 = 0x8558519aD14B443949149577024A92C036BEb7Bb;
 
-    address issuer1NftContractAddress = 0x3e19BBEe16243F36b331Ce550f3fF2685e972944;
-    address opsContractAddress = 0x3d4CF5232061744CA5E72eAB6624C96750D71EC2;
+    address issuer1NftContractAddress = 0x794F11F77cd0D4eE60885A1a1857d796f0D08fd7;
+    address opsContractAddress = 0x2Cbe484B1E2fe4ffA28Fef0cAa0C9E0D724Fe183;
 
     function run(uint8 config, uint8 chain) external {
         vm.startBroadcast();
@@ -246,9 +246,10 @@ contract SetupScript is Script {
                 addressToBytes32(opsContractAddress)
             );
         } else if (config == 3) {
+
             spendingContract = SmokeSpendingContract(spendingAddresses[chain]);
             depositContract = SmokeDepositContract(depositAddresses[chain]);
-            spendingContract.poolDeposit{value: 0.5 * 1e18}(issuer1NftContractAddress);
+            spendingContract.poolDeposit{value: 0.0042 * 1e18}(issuer1NftContractAddress);
 
             depositContract.addSupportedToken(wethAddresses[chain], issuer1NftContractAddress);
             depositContract.addSupportedToken(wstethAddresses[chain], issuer1NftContractAddress);
